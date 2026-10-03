@@ -1,9 +1,8 @@
 # cuore-pkgs
 
 The packages Cuore builds itself: `cuore`, `cuore-settings`, `cuore-keyring`, and the
-desktop's dependencies that aren't in Arch Linux's official repositories (Walker and
-its Elephant providers, the Limine hooks, `xdg-terminal-exec`, the Yaru icons, the
-share picker and Tensaku).
+desktop's dependencies that aren't in Arch Linux's official repositories (the Limine
+hooks, `xdg-terminal-exec`, the Yaru icons, the share picker and Tensaku).
 
 `bin/build` builds them in a throwaway Arch Linux container (rootless podman), signs
 each package and the repository database with Cuore's key, and writes a pacman

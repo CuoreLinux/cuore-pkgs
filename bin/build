@@ -5,8 +5,8 @@
 #   bin/build [--src <cuore checkout>] [--ref <commit>] [--out <dir>] [package...]
 #
 # Packages build in dependency order (PACKAGES below) and each finished package
-# is offered to the next ones through a local repository, so walker finds
-# elephant. cuore and cuore-settings build from a clean `git archive` of the
+# is offered to the next ones through a local repository, so later packages
+# can depend on earlier ones. cuore and cuore-settings build from a clean `git archive` of the
 # given commit of a cuore checkout (default ../cuore, HEAD), so nothing
 # uncommitted gets in. Nothing runs as root on the host: the container is
 # rootless podman, and makepkg runs as an unprivileged user inside it.
@@ -21,8 +21,6 @@ set -euo pipefail
 ROOT=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
 
 PACKAGES=(
-  elephant elephant-calc elephant-clipboard elephant-desktopapplications elephant-files
-  elephant-menus elephant-providerlist elephant-runner elephant-symbols walker
   limine-mkinitcpio-hook limine-snapper-sync xdg-terminal-exec yaru-icon-theme
   hyprland-preview-share-picker tensaku
   cuore-keyring cuore-settings cuore
@@ -90,7 +88,7 @@ podman run --rm \
     sudo -u builder gpg --batch --export "$KEY" | pacman-key --add - >/dev/null
     pacman-key --lsign-key "$KEY" >/dev/null
 
-    # Earlier packages in this run satisfy later ones (walker needs elephant).
+    # Earlier packages in this run satisfy later ones.
     printf "\n[cuore]\nServer = file:///out\n" >>/etc/pacman.conf
     chown -R builder /out
     [[ -f /out/cuore.db.tar.gz ]] || sudo -u builder repo-add -q /out/cuore.db.tar.gz
