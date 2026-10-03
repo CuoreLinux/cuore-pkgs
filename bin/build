@@ -62,17 +62,20 @@ trap 'rm -rf "$work"' EXIT
 mkdir -p "$out" "$work/cuore-src"
 git -C "$src" archive "$ref" | tar -x -C "$work/cuore-src"
 commit=$(git -C "$src" rev-parse "$ref")
+# Development builds get an increasing version that sorts before the release:
+# 0.1.0dev<commits> < 0.1.0 (pacman orders an attached suffix as a pre-release).
+devver="0.1.0dev$(git -C "$src" rev-list --count "$ref")"
 GNUPGHOME=$gnupg gpg --batch --export-secret-keys "$key" >"$work/signing.key"
 chmod 600 "$work/signing.key"
 
-echo "Building ${#selected[@]} package(s) from cuore ${commit:0:12}, signing with ${key: -16}"
+echo "Building ${#selected[@]} package(s) from cuore ${commit:0:12} ($devver), signing with ${key: -16}"
 
 podman run --rm \
   -v "$ROOT/pkgbuilds:/pkgbuilds:ro,z" \
   -v "$work/cuore-src:/cuore-src:ro,z" \
   -v "$work/signing.key:/signing.key:ro,z" \
   -v "$(cd -- "$out" && pwd):/out:z" \
-  -e KEY="$key" -e PACKAGES="${selected[*]}" \
+  -e KEY="$key" -e PACKAGES="${selected[*]}" -e DEVVER="$devver" -e COMMIT="$commit" \
   "$IMAGE" bash -euo pipefail -c '
     # Hand the output back to the invoking user (root here) whatever happens.
     trap "chown -R 0:0 /out" EXIT
@@ -100,7 +103,11 @@ podman run --rm \
       chown -R builder "/home/builder/$package"
       cd "/home/builder/$package"
       env=()
-      [[ $package == cuore || $package == cuore-settings ]] && env=(CUORE_SRC=/cuore-src)
+      if [[ $package == cuore || $package == cuore-settings ]]; then
+        env=(CUORE_SRC=/cuore-src)
+        sed -i -e "s/^pkgver=.*/pkgver=$DEVVER/" -e "s/^_commit=.*/_commit=$COMMIT/" PKGBUILD
+        # cuore depends on cuore-settings=<pkgver>; keep the pair in step.
+      fi
       sudo -u builder env "${env[@]}" PKGDEST=/out makepkg -s --noconfirm --sign --key "$KEY" 2>&1 | tail -n 3
       sudo -u builder repo-add -q -s -k "$KEY" /out/cuore.db.tar.gz /out/*.pkg.tar.zst
       pacman -Sy >/dev/null
