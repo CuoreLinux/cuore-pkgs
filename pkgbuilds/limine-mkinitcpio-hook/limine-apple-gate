@@ -7,29 +7,29 @@
 #   limine-apple-gate --not-mac COMMAND...  COMMAND everywhere but a Mac
 #   limine-apple-gate --mac                 succeeds on a Mac only
 #
-# A Mac boots GRUB until Omarchy activates Limine: the gate
-# /var/lib/omarchy/limine.enabled and the /etc/default/limine the activation
-# writes, the same test as omarchy-mac-limine-active. A command that does not
+# A Mac boots GRUB until Cuore activates Limine: the gate
+# /var/lib/cuore/limine.enabled and the /etc/default/limine the activation
+# writes, the same test as cuore-mac-limine-active. A command that does not
 # run reads the targets pacman streams to it and succeeds quietly.
 
-gate=/var/lib/omarchy/limine.enabled
+gate=/var/lib/cuore/limine.enabled
 limine_default=/etc/default/limine
 compatible=(/proc/device-tree/compatible /sys/firmware/devicetree/base/compatible)
 
 # Fixtures fake the machine for an unprivileged caller only; as root, which
 # pacman hooks always are, the live system decides.
 if ((EUID != 0)); then
-  gate=${OMARCHY_LIMINE_GATE:-$gate}
-  limine_default=${OMARCHY_LIMINE_DEFAULT:-$limine_default}
-  if [[ -n ${OMARCHY_PROC_ROOT:-}${OMARCHY_SYS_ROOT:-} ]]; then
+  gate=${CUORE_LIMINE_GATE:-$gate}
+  limine_default=${CUORE_LIMINE_DEFAULT:-$limine_default}
+  if [[ -n ${CUORE_PROC_ROOT:-}${CUORE_SYS_ROOT:-} ]]; then
     compatible=()
-    [[ -z ${OMARCHY_PROC_ROOT:-} ]] || compatible+=("$OMARCHY_PROC_ROOT/device-tree/compatible")
-    [[ -z ${OMARCHY_SYS_ROOT:-} ]] || compatible+=("$OMARCHY_SYS_ROOT/firmware/devicetree/base/compatible")
+    [[ -z ${CUORE_PROC_ROOT:-} ]] || compatible+=("$CUORE_PROC_ROOT/device-tree/compatible")
+    [[ -z ${CUORE_SYS_ROOT:-} ]] || compatible+=("$CUORE_SYS_ROOT/firmware/devicetree/base/compatible")
   fi
 fi
 
 # m1n1 names every Apple Silicon Mac "apple,<model>" in the root node's
-# NUL-separated compatible list, as omarchy-hw-platform reads it.
+# NUL-separated compatible list, as cuore-hw-platform reads it.
 is_mac() {
   local source
   for source in "${compatible[@]}"; do

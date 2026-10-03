@@ -1,5 +1,5 @@
-# Maintainer: Ryan Hughes <ryan@omarchy.org>
-# Release versioning convention (do not "fix" this; enforced by bin/omarchy-pkgs release):
+# Maintainer: Antonio Piattelli <hello@antoniopiattelli.com>
+# Release versioning convention (do not "fix" this; enforced by bin/cuore-pkgs release):
 #  - Pre-releases use the ATTACHED form pkgver=X.Y.ZrcN — NO separator. pacman's
 #    vercmp orders 4.0.0rc1 < 4.0.0rc2 < 4.0.0, but 4.0.0.rc1 and 4.0.0_rc1
 #    both sort AFTER 4.0.0 and would strand users on the pre-release.
@@ -7,32 +7,32 @@
 #    repackage the same source.
 #  - epoch is a manual escape hatch decided by a human; tooling never sets it.
 #  - _commit is the single source of truth for what gets built. _tag is
-#    provenance only (empty when cut from a bare commit). omarchy and
-#    omarchy-settings must always carry identical _tag/_commit/pkgver/sha256sums.
-pkgname='omarchy'
-_tag='v4.0.4'
-_commit='c668141e9c42b13c80c9ca4ea108e11708c5e8a5'
-pkgver=4.0.4
+#    provenance only (empty when cut from a bare commit). cuore and
+#    cuore-settings must always carry identical _tag/_commit/pkgver/sha256sums.
+pkgname='cuore'
+_tag=''
+_commit='3af3e810f4667a7fae17732d45406c36da97c04b'
+pkgver=0.1.0
 pkgrel=1
-pkgdesc='Beautiful, modern, and opinionated Arch Linux by DHH'
+pkgdesc='Cuore: an Arch Linux desktop with Hyprland where every app is your choice'
 # The payload is architecture-independent, but the dependency set is not: the
 # boot stack differs per architecture (see depends_x86_64 / depends_aarch64),
 # and makepkg only honours arch-suffixed arrays on arch-specific packages.
 arch=('x86_64' 'aarch64')
-url='https://github.com/basecamp/omarchy'
+url='https://github.com/CuoreLinux/cuore'
 license=('MIT')
-conflicts=('omarchy-dev')
+conflicts=('cuore-dev')
 # Hard depends: only packages whose removal would brick the desktop. The ISO
-# pacstraps the full default install set from install/omarchy-base.packages.
+# pacstraps the full default install set from install/cuore-base.packages.
 depends=(
-  # Omarchy meta
-  'omarchy-keyring'
-  # Exact-version pin: omarchy-settings-dev `provides=omarchy-settings`
+  # Cuore meta
+  'cuore-keyring'
+  # Exact-version pin: cuore-settings-dev `provides=cuore-settings`
   # (unversioned), and an unversioned dependency here would let the dev
   # package satisfy it, leaving a mixed dev/stable install. A versioned
-  # dependency can only be satisfied by the real omarchy-settings built
+  # dependency can only be satisfied by the real cuore-settings built
   # from the same _commit, and forces the pair to upgrade together.
-  "omarchy-settings=${pkgver}"
+  "cuore-settings=${pkgver}"
 
   # Wayland / Hyprland core
   'hyprland'
@@ -46,24 +46,24 @@ depends=(
   'pipewire'
   'gnome-keyring'
 
-  # Required by omarchy-* scripts and omarchy-shell
+  # Required by cuore-* scripts and cuore-shell
   'gum'
   'jq'
   'git'
-  'perl' # /usr/bin/omarchy-shell invokes perl directly
+  'perl' # /usr/bin/cuore-shell invokes perl directly
 
   # Update availability checks (checkupdates from pacman-contrib uses fakeroot)
   'fakeroot'
   'pacman-contrib'
 
   # System font (UI assumes it)
-  'ttf-jetbrains-mono-nerd-basic'
+  'ttf-jetbrains-mono-nerd'
 )
 
-# Bootloader stack. Lives here rather than on omarchy-settings because
-# omarchy-settings is also installed into the live ISO env (for plymouth
+# Bootloader stack. Lives here rather than on cuore-settings because
+# cuore-settings is also installed into the live ISO env (for plymouth
 # / /etc/skel seeding), where the limine-mkinitcpio-hook would fail with
-# 'Cannot detect an ESP path' inside the chroot. The omarchy-settings
+# 'Cannot detect an ESP path' inside the chroot. The cuore-settings
 # config drop-ins under /etc/mkinitcpio.conf.d/, /etc/limine-entry-tool.d/,
 # and /etc/snapper/config-templates/ only do anything when these are
 # installed alongside.
@@ -87,76 +87,76 @@ makedepends=(
   'git'
 )
 
-# Source: the pinned release commit; set OMARCHY_SRC=/path/to/checkout to
-# build from a local source tree instead (mirrors omarchy-zsh/omarchy-fish DX).
-if [[ -n "${OMARCHY_SRC:-}" ]]; then
+# Source: the pinned release commit; set CUORE_SRC=/path/to/checkout to
+# build from a local source tree instead (mirrors cuore-zsh/cuore-fish DX).
+if [[ -n "${CUORE_SRC:-}" ]]; then
   source=()
   sha256sums=()
 else
-  source=("omarchy::git+https://github.com/basecamp/omarchy.git#commit=${_commit}")
-  sha256sums=('8371b148aa06e9d0627c9e11668ef2dfdf54c4a9e5ffbee5aee08c3945073618')
+  source=("cuore::git+https://github.com/CuoreLinux/cuore.git#commit=${_commit}")
+  sha256sums=('SKIP')
 fi
 
 prepare() {
-  if [[ -n "${OMARCHY_SRC:-}" ]]; then
-    rm -rf "$srcdir/omarchy"
-    mkdir -p "$srcdir/omarchy"
-    cp -a "${OMARCHY_SRC}/." "$srcdir/omarchy/"
+  if [[ -n "${CUORE_SRC:-}" ]]; then
+    rm -rf "$srcdir/cuore"
+    mkdir -p "$srcdir/cuore"
+    cp -a "${CUORE_SRC}/." "$srcdir/cuore/"
   fi
 }
 
 package() {
-  cd "$srcdir/omarchy"
+  cd "$srcdir/cuore"
 
   # Runtime binaries — ship everything in bin/ except the debug helpers
-  # that ship from omarchy-settings (needed before omarchy is installed,
+  # that ship from cuore-settings (needed before cuore is installed,
   # e.g. on the ISO live env).
-  install -d "$pkgdir/usr/bin" "$pkgdir/usr/share/omarchy/bin"
+  install -d "$pkgdir/usr/bin" "$pkgdir/usr/share/cuore/bin"
   for bin in bin/*; do
     [[ -f $bin ]] || continue
     local base
     base=$(basename "$bin")
     case "$base" in
-      omarchy-debug|omarchy-debug-idle|omarchy-upload-log)
+      cuore-debug|cuore-debug-idle|cuore-save-log)
         continue
         ;;
     esac
     install -Dm755 "$bin" "$pkgdir/usr/bin/$base"
-    ln -s "/usr/bin/$base" "$pkgdir/usr/share/omarchy/bin/$base"
+    ln -s "/usr/bin/$base" "$pkgdir/usr/share/cuore/bin/$base"
   done
 
-  install -d "$pkgdir/usr/share/omarchy"
+  install -d "$pkgdir/usr/share/cuore"
 
-  # Guard direct pacman upgrades from bypassing the Omarchy update pipeline,
+  # Guard direct pacman upgrades from bypassing the Cuore update pipeline,
   # and pause Hyprland live config reloads while settings files are replaced.
   # Ship hooks with their Exec targets so package skew cannot leave a broken
   # hook pointing at a missing binary.
-  install -Dm644 default/libalpm/hooks/00-omarchy-update-guard.hook "$pkgdir/usr/share/libalpm/hooks/00-omarchy-update-guard.hook"
-  install -Dm644 default/libalpm/hooks/10-omarchy-hyprland-reload-pause.hook "$pkgdir/usr/share/libalpm/hooks/10-omarchy-hyprland-reload-pause.hook"
-  install -Dm644 default/libalpm/hooks/90-omarchy-hyprland-reload-resume.hook "$pkgdir/usr/share/libalpm/hooks/90-omarchy-hyprland-reload-resume.hook"
+  install -Dm644 default/libalpm/hooks/00-cuore-update-guard.hook "$pkgdir/usr/share/libalpm/hooks/00-cuore-update-guard.hook"
+  install -Dm644 default/libalpm/hooks/10-cuore-hyprland-reload-pause.hook "$pkgdir/usr/share/libalpm/hooks/10-cuore-hyprland-reload-pause.hook"
+  install -Dm644 default/libalpm/hooks/90-cuore-hyprland-reload-resume.hook "$pkgdir/usr/share/libalpm/hooks/90-cuore-hyprland-reload-resume.hook"
 
   # Target-side setup scripts and package lists used by ISO finalization,
   # first login, future users, migrations, and reinstall/reset commands.
-  cp -a install "$pkgdir/usr/share/omarchy/"
+  cp -a install "$pkgdir/usr/share/cuore/"
 
   # Theme bundles for theme switching.
-  cp -a themes "$pkgdir/usr/share/omarchy/"
+  cp -a themes "$pkgdir/usr/share/cuore/"
 
   # Versioned migrations runner reads from this tree.
-  cp -a migrations "$pkgdir/usr/share/omarchy/"
+  cp -a migrations "$pkgdir/usr/share/cuore/"
 
   # Fresh users created after install are already on the package layout in this
   # build, so seed migration markers through /etc/skel. Existing users keep
   # their own state and still run pending migrations on update.
   if compgen -G 'migrations/*.sh' >/dev/null; then
-    install -d "$pkgdir/etc/skel/.local/state/omarchy/migrations"
+    install -d "$pkgdir/etc/skel/.local/state/cuore/migrations"
     for migration in migrations/*.sh; do
-      touch "$pkgdir/etc/skel/.local/state/omarchy/migrations/$(basename "$migration")"
+      touch "$pkgdir/etc/skel/.local/state/cuore/migrations/$(basename "$migration")"
     done
   fi
   # Quickshell desktop shell tree.
-  cp -a shell "$pkgdir/usr/share/omarchy/"
+  cp -a shell "$pkgdir/usr/share/cuore/"
 
   # Runtime version file.
-  install -Dm644 version "$pkgdir/usr/share/omarchy/version"
+  install -Dm644 version "$pkgdir/usr/share/cuore/version"
 }

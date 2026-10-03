@@ -1,0 +1,122 @@
+#!/bin/bash
+# Renames upstream's name to Cuore's in file contents and paths (D61).
+#
+#   tools/rebrand            rewrite the tracked tree (contents, then paths with git mv)
+#   tools/rebrand --patch    filter an upstream patch from stdin to stdout
+#   tools/rebrand --check    list every leftover upstream name or brand word; exit 1 if any
+#   tools/rebrand --word W   print what W becomes (used by the tests)
+#
+# The rename keeps case: omarchy -> cuore, Omarchy -> Cuore,
+# OMARCHY -> CUORE. Hostnames and upstream repository URLs are never
+# renamed: a renamed hostname would point at a domain we don't own. They stay
+# as they are, so --check reports them until each one is replaced by hand.
+
+set -euo pipefail
+
+ROOT=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
+
+# Files that are ours, or that talk about upstream on purpose. Never rewritten.
+# Entries are glob patterns.
+KEEP=(
+  NOTICE UPSTREAM LICENSE README.md CLAUDE.md tools/rebrand
+)
+
+# Hostnames and upstream repository names, with or without a URL, stay untouched
+# (see the header).
+PROTECT='[A-Za-z0-9.-]*omarchy\.org|\b(?:basecamp|omacom(?:-io)?)/omarchy[\w.-]*'
+
+# Lines --check accepts: projects whose real address is under upstream's GitHub
+# organisation, which we use but don't own.
+ALLOW='omacom-io/herdr\b'
+
+# Words that must not appear in the product once the rebrand is done.
+BRAND='omarchy|omacom|omakub|omakase|\bdhh\b|heinemeier|okonarchy|okonomi'
+
+rename_stream() {
+  perl -pe '
+    BEGIN { $p = qr{'"$PROTECT"'}; }
+    s{($p)|(omarchy|Omarchy|OMARCHY)}{
+      defined $1 ? $1 : $2 eq "omarchy" ? "cuore" : $2 eq "Omarchy" ? "Cuore" : "CUORE"
+    }ge;
+  '
+}
+
+is_kept() {
+  local path=$1 kept
+  for kept in "${KEEP[@]}"; do
+    # shellcheck disable=SC2053 # the entries are glob patterns
+    [[ $path == $kept ]] && return 0
+  done
+  return 1
+}
+
+# Text files git tracks, minus the kept ones, NUL-separated.
+rewritable_files() {
+  local path
+  while IFS= read -r -d '' path; do
+    is_kept "$path" && continue
+    printf '%s\0' "$path"
+  done < <(git -C "$ROOT" grep -zIl -e '' -- .)
+}
+
+rewrite_tree() {
+  local path renamed
+  cd "$ROOT"
+
+  while IFS= read -r -d '' path; do
+    grep -qiE 'omarchy' "$path" || continue
+    rename_stream <"$path" >"$path.rebrand.tmp"
+    chmod --reference="$path" "$path.rebrand.tmp"
+    mv "$path.rebrand.tmp" "$path"
+  done < <(rewritable_files)
+
+  while IFS= read -r -d '' path; do
+    is_kept "$path" && continue
+    renamed=$(printf '%s' "$path" | rename_stream)
+    [[ $renamed == "$path" ]] && continue
+    mkdir -p "$(dirname -- "$renamed")"
+    git mv -k -- "$path" "$renamed"
+  done < <(git ls-files -z)
+
+  # git mv leaves the emptied directories behind.
+  find . -path ./.git -prune -o -type d -empty -print0 | xargs -0r rmdir -p --ignore-fail-on-non-empty 2>/dev/null || true
+}
+
+check_tree() {
+  local path found=0 hits
+  cd "$ROOT"
+
+  while IFS= read -r -d '' path; do
+    is_kept "$path" && continue
+    if [[ $path =~ [oO][mM][aA][rR][cC][hH][yY] ]]; then
+      printf '%s: path\n' "$path"
+      found=1
+    fi
+  done < <(git ls-files -z)
+
+  while IFS= read -r -d '' path; do
+    if hits=$(grep -inE "$BRAND" -- "$path" | grep -vE "$ALLOW"); then
+      printf '%s\n' "$hits" | sed "s|^|$path:|"
+      found=1
+    fi
+  done < <(rewritable_files)
+
+  return "$found"
+}
+
+case ${1:-} in
+  "") rewrite_tree ;;
+  --patch) rename_stream ;;
+  --check) check_tree ;;
+  --word)
+    [[ $# -eq 2 ]] || {
+      echo "usage: tools/rebrand --word WORD" >&2
+      exit 2
+    }
+    printf '%s\n' "$2" | rename_stream
+    ;;
+  *)
+    echo "usage: tools/rebrand [--patch | --check | --word WORD]" >&2
+    exit 2
+    ;;
+esac
