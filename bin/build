@@ -107,7 +107,8 @@ podman run --rm \
         # cuore depends on cuore-settings=<pkgver>; keep the pair in step.
       fi
       sudo -u builder env "${env[@]}" PKGDEST=/out makepkg -s --noconfirm --sign --key "$KEY" 2>&1 | tail -n 3
-      sudo -u builder repo-add -q -s -k "$KEY" /out/cuore.db.tar.gz /out/*.pkg.tar.zst
+      # -p: a package file left from an older build must not replace a newer one.
+      sudo -u builder repo-add -q -p -s -k "$KEY" /out/cuore.db.tar.gz /out/*.pkg.tar.zst
       pacman -Sy >/dev/null
     done
   '
