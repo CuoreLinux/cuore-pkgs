@@ -1,0 +1,19 @@
+# Built for Cuore's repository so choosing Docker also installs the rules that
+# keep its published ports behind ufw (cuore D96). Based on the AUR package
+# (AUR package sources are 0BSD); the source is pinned by tag and checksum.
+pkgname=ufw-docker
+pkgver=251123
+pkgrel=1
+pkgdesc="Keeps Docker's published ports behind ufw"
+arch=('any')
+url="https://github.com/chaifeng/ufw-docker"
+license=('GPL-3.0-only')
+depends=('ufw' 'docker')
+source=("${pkgname}-${pkgver}.tar.gz::https://github.com/chaifeng/${pkgname}/archive/refs/tags/${pkgver}.tar.gz")
+sha256sums=('fe0d83baa45c258044b41a30d9da728e1bdc150892054a2268d9e7811f04de7f')
+
+package() {
+  cd "$srcdir/$pkgname-$pkgver"
+  install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+  install -Dm755 ufw-docker "$pkgdir/usr/bin/ufw-docker"
+}
