@@ -1,6 +1,6 @@
 # Maintainer: Antonio Piattelli <hello@antoniopiattelli.com>
 pkgname=cutline
-pkgver=0.1.0
+pkgver=0.1.1
 pkgrel=1
 pkgdesc='Multi-track video editor: split, trim, ripple, picture-in-picture, HDR tone mapping (ffmpeg + browser UI)'
 arch=('any')
@@ -13,7 +13,7 @@ optdepends=('chromium: editor window (or any Chromium-based browser; see CUTLINE
             'xdg-user-dirs: find your Videos folder'
             'xdg-utils: show exports in the file manager, use your default browser')
 source=("$pkgname-$pkgver.tar.gz::$url/archive/refs/tags/v$pkgver.tar.gz")
-sha256sums=('SKIP')  # run updpkgsums once the v$pkgver tag is on GitHub
+sha256sums=('8d07f9d9d05c7d4ed5fe9ff9c926d4263dc05539f63ebe862d051269ac8ad3ab')
 
 check() {
   cd "$pkgname-$pkgver"
