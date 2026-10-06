@@ -38,7 +38,6 @@ esac
 SH
 chmod +x "$tmp/bin/gh"
 
-before=$(stat -c %Y "$HOME/.gnupg" 2>/dev/null || echo none)
 HOME=$tmp/home TMPDIR=$tmp/scratch PATH="$tmp/bin:$PATH" GH_SECRET=$tmp/secret \
   CUORE_RELEASE_KEYRING=$tmp/keyring CUORE_RELEASE_BACKUP=$tmp/backup CUORE_RELEASE_REPO=test/repo \
   CUORE_RELEASE_TEST_PASSPHRASE=test-passphrase "$ROOT/bin/make-release-key" >"$tmp/out" 2>&1 ||
@@ -78,7 +77,7 @@ gpg --homedir "$tmp/check" --batch --quiet --import "$tmp/backup/cuore-release-s
 check "the backup is protected by the passphrase" \
   bash -c "! gpg --homedir '$tmp/check' --batch --pinentry-mode loopback --passphrase '' -u '$main' --detach-sign -o '$tmp/z.sig' '$tmp/file'"
 check "the throwaway keyring is gone" test -z "$(find "$tmp/scratch" -mindepth 1 -print -quit)"
-check "the home keyring (\$HOME/.gnupg) is untouched" test "$before" == "$(stat -c %Y "$HOME/.gnupg" 2>/dev/null || echo none)"
+check "the script never makes a keyring in the home folder" test ! -e "$tmp/home/.gnupg"
 
 status=0
 out=$(HOME=$tmp/home PATH="$tmp/bin:$PATH" CUORE_RELEASE_KEYRING=$tmp/keyring CUORE_RELEASE_BACKUP=$tmp/backup2 \
