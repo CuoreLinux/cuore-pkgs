@@ -1,0 +1,41 @@
+diff -ru ca/cutline cb/cutline
+--- ca/cutline	2026-10-06 15:11:48.514495353 +0200
++++ cb/cutline	2026-10-06 15:11:48.550571754 +0200
+@@ -62,11 +62,11 @@
+     return Path.home() / "Videos"
+ 
+ 
+-# Cuore and Omarchy write the current theme here (the first one found wins);
+-# elsewhere the built-in Tokyo Night colours are used.
+-THEMES = [Path.home() / f".local/state/{desktop}/current/theme/colors.toml" for desktop in ("cuore", "omarchy")]
+-# Each desktop's command that names its current font, in the same order.
+-FONT_COMMANDS = [["cuore", "font", "current"], ["omarchy", "font", "current"]]
++# Cuore writes the current theme here; elsewhere the built-in Tokyo Night
++# colours are used.
++THEMES = [Path.home() / ".local/state/cuore/current/theme/colors.toml"]
++# Cuore's command that names its current font.
++FONT_COMMANDS = [["cuore", "font", "current"]]
+ PROJECTS = xdg_dir("XDG_DATA_HOME", ".local/share") / "cutline/projects"
+ CACHE = xdg_dir("XDG_CACHE_HOME", ".cache") / "cutline"
+ VIDEOS = videos_dir()
+diff -ru ca/README.md cb/README.md
+--- ca/README.md	2026-10-06 15:11:48.514363816 +0200
++++ cb/README.md	2026-10-06 15:11:48.550978407 +0200
+@@ -28,7 +28,7 @@
+ - **Smooth preview**: light 540p proxies are made in the background, on the GPU through VA-API when available, falling back to the CPU.
+ - **HDR → SDR**: iPhone HLG / Dolby Vision footage is tone-mapped (libplacebo on the GPU, zscale on the CPU as a fallback), so it doesn't look washed out or red.
+ - **Frame-exact export**: every clip is snapped to whole frames, so audio and video stay in sync over many cuts. Export at original size or 1080p.
+-- **Native on Omarchy**: follows the current Omarchy theme colours and font live. Elsewhere it uses a Tokyo Night palette.
++- **Follows your desktop**: on Cuore it follows the current theme colours and font live. Elsewhere it uses a Tokyo Night palette.
+ 
+ ## Install
+ 
+@@ -105,7 +105,7 @@
+ | _optional_ VA-API driver | GPU-made preview proxies (`libva-mesa-driver` / `intel-media-driver`); the CPU is used otherwise |
+ | _optional_ Vulkan driver | needed by libplacebo; without it HDR is tone-mapped on the CPU |
+ | _optional_ `xdg-user-dirs`, `xdg-utils` | find your Videos folder; open the export folder; pick your default browser |
+-| _optional_ Omarchy | live theme colours (`~/.local/state/omarchy/current/theme/colors.toml`) and font (`omarchy font current`) |
++| _optional_ Cuore | live theme colours (`~/.local/state/cuore/current/theme/colors.toml`) and font (`cuore font current`) |
+ 
+ ### Settings (environment variables)
+ 

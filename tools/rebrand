@@ -16,9 +16,11 @@ set -euo pipefail
 ROOT=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
 
 # Files that are ours, or that talk about upstream on purpose. Never rewritten.
-# Entries are glob patterns.
+# Entries are glob patterns. The cuore-names patches quote the lines they take
+# the name out of; bin/check-names checks the packages they produce (cuore D126).
 KEEP=(
   NOTICE UPSTREAM LICENSE README.md CLAUDE.md tools/rebrand
+  'pkgbuilds/*/cuore-names.patch'
 )
 
 # Hostnames and upstream repository names, with or without a URL, stay untouched

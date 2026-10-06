@@ -1,0 +1,28 @@
+diff -ru ja/README.md jb/README.md
+--- ja/README.md	2026-10-06 15:11:48.519069243 +0200
++++ jb/README.md	2026-10-06 15:11:48.551366725 +0200
+@@ -23,7 +23,7 @@
+ - **Folders**: subfolders of your notes directory show up in a folder picker.
+ - **Live**: notes added or changed by other programs appear within a second.
+ - **Quick capture**: `jotter new` opens straight into a blank note and exits on save. Bind it to a hotkey.
+-- **Native colours**: it uses your terminal's ANSI palette, so it matches any theme (including Omarchy's).
++- **Native colours**: it uses your terminal's ANSI palette, so it matches any theme.
+ 
+ ## Install
+ 
+@@ -125,12 +125,12 @@
+ 
+ Installing adds a *Jotter* entry to your app launcher (it opens in your terminal).
+ 
+-On **Omarchy** you can bind it to keys, with a small floating window for quick capture:
++On **Cuore** you can bind it to keys, with a small floating window for quick capture:
+ 
+ ```lua
+ -- ~/.config/hypr/bindings.lua
+-o.bind("SUPER + N", "Notes", "omarchy-launch-tui --app-id=org.omarchy.jotter jotter")
+-o.bind("SUPER + ALT + N", "New note", "omarchy-launch-tui --app-id=jotter-popup jotter new")
++o.bind("SUPER + N", "Notes", "cuore-launch-tui --app-id=org.cuore.jotter jotter")
++o.bind("SUPER + ALT + N", "New note", "cuore-launch-tui --app-id=jotter-popup jotter new")
+ 
+ -- ~/.config/hypr/hyprland.lua
+ o.window("jotter-popup", { float = true, center = true, size = { 800, 500 } })

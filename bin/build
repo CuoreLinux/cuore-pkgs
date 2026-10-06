@@ -22,7 +22,7 @@ ROOT=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
 
 PACKAGES=(
   limine-mkinitcpio-hook limine-snapper-sync xdg-terminal-exec yaru-icon-theme
-  hyprland-preview-share-picker tensaku
+  hyprland-preview-share-picker
   cuore-keyring cuore-settings cuore
 )
 IMAGE=docker.io/library/archlinux:base@sha256:f3691b4dde62ba4c4b6f0ae2c1fbf28e8c0c8c4b9a35c7e06dc1f70e21aa29f6
@@ -72,6 +72,7 @@ podman run --rm \
   -v "$ROOT/pkgbuilds:/pkgbuilds:ro,z" \
   -v "$work/cuore-src:/cuore-src:ro,z" \
   -v "$work/signing.key:/signing.key:ro,z" \
+  -v "$ROOT/bin/check-names:/check-names:ro,z" \
   -v "$(cd -- "$out" && pwd):/out:z" \
   -e KEY="$key" -e PACKAGES="${selected[*]}" -e DEVVER="$devver" -e COMMIT="$commit" \
   "$IMAGE" bash -euo pipefail -c '
@@ -107,6 +108,13 @@ podman run --rm \
         # cuore depends on cuore-settings=<pkgver>; keep the pair in step.
       fi
       sudo -u builder env "${env[@]}" PKGDEST=/out makepkg -s --noconfirm --sign --key "$KEY" 2>&1 | tail -n 3
+      # Nothing Cuore ships names the desktop it was forked from (cuore D126):
+      # a package that does is deleted before it reaches the repository.
+      mapfile -t built < <(sudo -u builder env "${env[@]}" PKGDEST=/out makepkg --packagelist)
+      /check-names "${built[@]}" || {
+        for file in "${built[@]}"; do rm -f "$file" "$file.sig"; done
+        exit 1
+      }
       # -p: a package file left from an older build must not replace a newer one.
       sudo -u builder repo-add -q -p -s -k "$KEY" /out/cuore.db.tar.gz /out/*.pkg.tar.zst
       pacman -Sy >/dev/null

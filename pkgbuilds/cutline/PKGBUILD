@@ -1,7 +1,7 @@
 # Maintainer: Antonio Piattelli <hello@antoniopiattelli.com>
 pkgname=cutline
 pkgver=0.1.1
-pkgrel=1
+pkgrel=2
 pkgdesc='Multi-track video editor: split, trim, ripple, picture-in-picture, HDR tone mapping (ffmpeg + browser UI)'
 arch=('any')
 url='https://github.com/antoniowav/cutline'
@@ -12,8 +12,19 @@ optdepends=('chromium: editor window (or any Chromium-based browser; see CUTLINE
             'libva-driver: GPU-made preview proxies (VA-API)'
             'xdg-user-dirs: find your Videos folder'
             'xdg-utils: show exports in the file manager, use your default browser')
-source=("$pkgname-$pkgver.tar.gz::$url/archive/refs/tags/v$pkgver.tar.gz")
-sha256sums=('8d07f9d9d05c7d4ed5fe9ff9c926d4263dc05539f63ebe862d051269ac8ad3ab')
+source=("$pkgname-$pkgver.tar.gz::$url/archive/refs/tags/v$pkgver.tar.gz"
+        cuore-names.patch)
+sha256sums=('8d07f9d9d05c7d4ed5fe9ff9c926d4263dc05539f63ebe862d051269ac8ad3ab'
+            '4e1a3cc2a792ef5bb729b339f5438d09c243123fc0031446439cc215b4443006')
+
+# cuore-names.patch: what Cuore ships doesn't name the desktop it was forked
+# from (cuore D126), so the theme and font fallbacks for it and the
+# README and man page lines that name it are changed here.
+
+prepare() {
+  cd "$pkgname-$pkgver"
+  patch -p1 <"$srcdir/cuore-names.patch"
+}
 
 check() {
   cd "$pkgname-$pkgver"

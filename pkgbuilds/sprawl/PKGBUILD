@@ -1,15 +1,21 @@
 # Maintainer: Antonio Piattelli <hello@antoniopiattelli.com>
 pkgname=sprawl
 pkgver=0.3.0
-pkgrel=1
+pkgrel=2
 pkgdesc='Keyboard-first pixel-art city builder'
 arch=('x86_64')
 url='https://github.com/antoniowav/sprawl'
 license=('MIT')
 depends=('libgl' 'libxrandr' 'libxcursor' 'libxinerama' 'libxi' 'alsa-lib')
 makedepends=('go')
-source=("$pkgname-$pkgver.tar.gz::$url/archive/refs/tags/v$pkgver.tar.gz")
-sha256sums=('85d999364876b5083643dcd7da54c9cf32a87e80e008781e1d011e1e520b93f6')
+source=("$pkgname-$pkgver.tar.gz::$url/archive/refs/tags/v$pkgver.tar.gz"
+        cuore-names.patch)
+sha256sums=('85d999364876b5083643dcd7da54c9cf32a87e80e008781e1d011e1e520b93f6'
+            'edfc389f36835cf644f9aac9a07f5d0c786b1512a3deea13066994757c33c021')
+
+# cuore-names.patch: what Cuore ships doesn't name the desktop it was forked
+# from (cuore D126), so the theme and font fallbacks for it and the
+# README and man page lines that name it are changed here.
 
 # Based on the upstream dist/PKGBUILD. `make install` depends on `build`, so it
 # gets the same flags as build() and doesn't relink without them.
@@ -17,6 +23,7 @@ _goflags='-buildmode=pie -trimpath -mod=readonly -modcacherw'
 
 prepare() {
   cd "$pkgname-$pkgver"
+  patch -p1 <"$srcdir/cuore-names.patch"
   export GOPATH="$srcdir/gopath"
   go mod download -modcacherw
 }

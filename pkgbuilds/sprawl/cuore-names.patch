@@ -1,0 +1,96 @@
+diff -ru a/config/config.go b/config/config.go
+--- a/config/config.go	2026-10-06 15:11:20.769263625 +0200
++++ b/config/config.go	2026-10-06 15:11:20.805865312 +0200
+@@ -60,7 +60,7 @@
+ low_power = true        # only render when something changes (false = plain vsync loop)
+ animations = true       # water shimmer, smoke, grow animation
+ time_of_day = "cycle"   # cycle, day, night or frozen
+-watch_theme = true      # follow Omarchy theme changes live
++watch_theme = true      # follow desktop theme changes live
+ autosave_months = 6     # 0 = off
+ map_size = 128
+ volume = 60             # sound effects, 0..100 (0 = off)
+@@ -124,7 +124,7 @@
+ low_power = %t        # only render when something changes
+ animations = %t       # water shimmer, smoke, grow animation
+ time_of_day = %q   # cycle, day, night or frozen
+-watch_theme = %t      # follow Omarchy theme changes live
++watch_theme = %t      # follow desktop theme changes live
+ autosave_months = %d     # 0 = off
+ map_size = %d
+ volume = %d             # sound effects, 0..100 (0 = off)
+diff -ru a/docs/sprawl.6 b/docs/sprawl.6
+--- a/docs/sprawl.6	2026-10-06 15:11:20.769594686 +0200
++++ b/docs/sprawl.6	2026-10-06 15:11:20.805940783 +0200
+@@ -49,5 +49,5 @@
+ .SH ENVIRONMENT
+ .TP
+ .B SPRAWL_THEME_DIR
+-Read the colour theme from this directory instead of the active Omarchy
++Read the colour theme from this directory instead of the desktop's current
+ theme.
+diff -ru a/README.md b/README.md
+--- a/README.md	2026-10-06 15:11:20.769117371 +0200
++++ b/README.md	2026-10-06 15:11:20.777354772 +0200
+@@ -1,16 +1,16 @@
+ # Sprawl
+ 
+ A small, keyboard-first, pixel-art city builder for Linux, made to feel at
+-home on Omarchy (Arch + Hyprland). Roads, zones, power, water, services and
++home on an Arch + Hyprland desktop. Roads, zones, power, water, services and
+ a budget — no traffic, disasters or individual citizens. It follows your
+-Omarchy theme, live.
++desktop theme, live.
+ 
+ ![screenshot](docs/screenshot.png)
+ 
+ ## Install
+ 
+-Needs Go 1.27+ and the usual X11/GL and ALSA libraries (present on any
+-Omarchy desktop):
++Needs Go 1.27+ and the usual X11/GL and ALSA libraries (present on a
++typical Arch + Hyprland desktop):
+ 
+ ```sh
+ sudo pacman -S --needed go mesa libxrandr libxcursor libxinerama libxi
+@@ -81,7 +81,7 @@
+ | `:loan`, `:repay` | borrow $10,000 (repaid $450/month for 24 months), or pay off early |
+ | `:w [name]`, `:e [name]` | save, load (`:e` alone lists saves) |
+ | `:new [seed]`, `:name <city>` | new map, rename |
+-| `:theme reload` | re-read the Omarchy theme |
++| `:theme reload` | re-read the desktop theme |
+ | `:q`, `:wq` | quit, save and quit |
+ 
+ Twelve months in debt and the city goes bankrupt.
+@@ -126,10 +126,10 @@
+   run. Every key is rebindable under `[keys]`, e.g. `road = ["R"]`.
+ - Saves: `~/.local/share/sprawl/*.city` (gzip'd JSON), autosave every 6
+   game months.
+-- Theme: read from Cuore (`~/.local/state/cuore/current/theme`) or Omarchy
+-  (`~/.config/omarchy/current/theme`, `~/.local/state/omarchy/current/theme`):
+-  `colors.toml`, falling back to `alacritty.toml`. `SPRAWL_THEME_DIR`
+-  overrides. Without either it uses a built-in palette.
++- Theme: read from your desktop's current theme folder (`colors.toml`,
++  falling back to `alacritty.toml`) and followed live when you switch themes.
++  `SPRAWL_THEME_DIR=/path/to/theme` points it at another folder. Without a
++  theme it uses a built-in palette.
+ 
+ ## Flags
+ 
+diff -ru a/theme/load.go b/theme/load.go
+--- a/theme/load.go	2026-10-06 15:11:20.771736724 +0200
++++ b/theme/load.go	2026-10-06 15:11:20.805764873 +0200
+@@ -20,11 +20,8 @@
+ 	if state == "" {
+ 		state = filepath.Join(home, ".local", "state")
+ 	}
+-	// Cuore (an Omarchy-based distro) keeps its theme under its own name.
+-	return append(dirs,
+-		filepath.Join(state, "cuore", "current", "theme"),
+-		filepath.Join(home, ".config", "omarchy", "current", "theme"),
+-		filepath.Join(state, "omarchy", "current", "theme"))
++	// Cuore's current theme (patched in Cuore's package).
++	return append(dirs, filepath.Join(state, "cuore", "current", "theme"))
+ }
+ 
+ // FindDir returns the first candidate holding a parseable palette file, or "".

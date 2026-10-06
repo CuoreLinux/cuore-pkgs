@@ -1,0 +1,44 @@
+#!/bin/bash
+# Fails if a package names the desktop Cuore was forked from anywhere in what it
+# ships: file contents (binaries and compressed man pages included), file
+# names, and its metadata (cuore D126). bin/build runs it on every package
+# before it goes into the repository.
+#
+#   bin/check-names PACKAGE.pkg.tar.zst...
+
+set -euo pipefail
+
+# Spelled in two parts so this script doesn't match itself.
+name="omar""chy"
+
+(($# > 0)) || {
+  echo "usage: bin/check-names PACKAGE..." >&2
+  exit 2
+}
+
+failed=0
+for package in "$@"; do
+  dir=$(mktemp -d)
+  bsdtar -xf "$package" -C "$dir"
+  found=()
+  while IFS= read -r -d '' file; do
+    relative=${file#"$dir"/}
+    if grep -qi "$name" <<<"$relative"; then
+      found+=("$relative (its name)")
+      continue
+    fi
+    # gzip -t tells compressed files (man pages, .MTREE) from the rest.
+    if gzip -t "$file" 2>/dev/null; then
+      zcat "$file" | grep -aqi "$name" && found+=("$relative")
+    else
+      grep -aqi "$name" "$file" && found+=("$relative")
+    fi
+  done < <(find "$dir" -type f -print0)
+  rm -rf "$dir"
+  if ((${#found[@]} > 0)); then
+    echo "${package##*/} names $name in:" >&2
+    printf '  %s\n' "${found[@]}" >&2
+    failed=1
+  fi
+done
+exit "$failed"

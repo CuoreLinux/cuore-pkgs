@@ -1,7 +1,7 @@
 # Maintainer: Antonio Piattelli <hello@antoniopiattelli.com>
 pkgname=jotter
 pkgver=0.1.1
-pkgrel=1
+pkgrel=2
 pkgdesc='Tiny terminal notes app: plain markdown files, folders, live preview'
 arch=('x86_64' 'aarch64')
 url='https://github.com/antoniowav/jotter'
@@ -10,11 +10,18 @@ depends=('glibc' 'hicolor-icon-theme')
 makedepends=('go')
 optdepends=('wl-clipboard: copy and cut on Wayland'
             'xclip: copy and cut on X11')
-source=("$pkgname-$pkgver.tar.gz::$url/archive/refs/tags/v$pkgver.tar.gz")
-sha256sums=('bc398abc007e5595ac4204a51dd8c1d169811e0fc48f6227c6ac2c412f8ffefb')
+source=("$pkgname-$pkgver.tar.gz::$url/archive/refs/tags/v$pkgver.tar.gz"
+        cuore-names.patch)
+sha256sums=('bc398abc007e5595ac4204a51dd8c1d169811e0fc48f6227c6ac2c412f8ffefb'
+            '3b32c58543c5e759a5e687fab17e0f8db558c511a8fded4048569b607a650e51')
+
+# cuore-names.patch: what Cuore ships doesn't name the desktop it was forked
+# from (cuore D126), so the theme and font fallbacks for it and the
+# README and man page lines that name it are changed here.
 
 prepare() {
   cd "$pkgname-$pkgver"
+  patch -p1 <"$srcdir/cuore-names.patch"
   export GOPATH="$srcdir/gopath"
   go mod download -modcacherw
 }
