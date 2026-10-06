@@ -1,0 +1,51 @@
+#!/bin/bash
+# Publishes a built repository as the GitHub release TAG (cuore D134): the
+# packages, the database under the names pacman asks for (cuore.db, not a
+# link), their signatures; then removes files the new database no longer
+# names. Uploads come first, so the release always holds a working repository.
+#
+#   bin/publish TAG DIR       (TAG like edge-x86_64; needs gh logged in)
+
+set -euo pipefail
+
+(($# == 2)) || {
+  echo "usage: bin/publish TAG DIR" >&2
+  exit 2
+}
+tag=$1 dir=$2
+[[ $tag =~ ^(edge|rc|stable)-x86_64$ ]] || {
+  echo "not a channel release: $tag" >&2
+  exit 2
+}
+[[ -f $dir/cuore.db.tar.gz && -f $dir/cuore.db.tar.gz.sig ]] || {
+  echo "no signed repository in $dir" >&2
+  exit 1
+}
+
+stage=$(mktemp -d)
+trap 'rm -rf "${stage:?}"' EXIT
+for file in "$dir"/*.pkg.tar.zst "$dir"/*.pkg.tar.zst.sig "$dir"/cuore.db.tar.gz "$dir"/cuore.db.tar.gz.sig \
+  "$dir"/cuore.files.tar.gz "$dir"/cuore.files.tar.gz.sig; do
+  [[ -e $file ]] && cp "$file" "$stage/"
+done
+cp "$dir/cuore.db.tar.gz" "$stage/cuore.db"
+cp "$dir/cuore.db.tar.gz.sig" "$stage/cuore.db.sig"
+if [[ -f $dir/cuore.files.tar.gz ]]; then
+  cp "$dir/cuore.files.tar.gz" "$stage/cuore.files"
+  [[ -f $dir/cuore.files.tar.gz.sig ]] && cp "$dir/cuore.files.tar.gz.sig" "$stage/cuore.files.sig"
+fi
+
+if ! gh release view "$tag" >/dev/null 2>&1; then
+  prerelease=(--prerelease)
+  [[ $tag == stable-* ]] && prerelease=()
+  gh release create "$tag" --title "Cuore $tag" \
+    --notes "Cuore's signed package repository for the ${tag%-x86_64} channel." "${prerelease[@]}"
+fi
+gh release upload "$tag" "$stage"/* --clobber
+
+mapfile -t keep < <(cd "$stage" && printf '%s\n' *)
+while IFS= read -r asset; do
+  [[ -z $asset ]] && continue
+  printf '%s\n' "${keep[@]}" | grep -qxF -- "$asset" || gh release delete-asset "$tag" "$asset" --yes
+done < <(gh release view "$tag" --json assets --jq '.assets[].name')
+echo "published ${#keep[@]} files to $tag"

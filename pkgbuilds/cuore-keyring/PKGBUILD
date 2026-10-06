@@ -1,9 +1,9 @@
 # Maintainer: Antonio Piattelli <hello@antoniopiattelli.com>
 
 pkgname=cuore-keyring
-pkgver=20261003
+pkgver=20261006
 pkgrel=1
-pkgdesc="Cuore keyring (development key until the release key exists, D65)"
+pkgdesc="Cuore keyring: the key that signs Cuore's packages (D133)"
 arch=(any)
 url="https://github.com/CuoreLinux/cuore"
 license=('GPL-3.0-or-later')
@@ -13,9 +13,9 @@ source=("cuore.gpg"
         "cuore-trusted"
         "$install")
 
-sha512sums=('23778a4bd26adad9d40fae7c0cfdebd26cda6972f35f583ad3cff4454dec08caf49f08568fd2e9acfaf0a9860663026c3f902e9875ae9c35a9cd158a76e521b7'
+sha512sums=('025621adf6760471e515317c1500804c393647086ecb26dc0a170a46fa5e44bfe6227f0f9c6cadaf1012b122fdeca1cf385369b97ba0a112780a784fd8627c49'
             'cf83e1357eefb8bdf1542850d66d8007d620e4050b5715dc83f4a921d36ce9ce47d0d13c5d85f2b0ff8318d2877eec2f63b931bd47417a81a538327af927da3e'
-            '2faef88af1af7e934f41953ca5718c6e8fafd9713ac48d3f0514fbbea0d728284b58c7cdb01ddf4cfcd766f914984a7a5d34f180868035100746df404f7dbd2f'
+            '36fc4d0338706ac2898e3ca421d9a981bd4eca663e5d762c69fc258c4b13b207e56b6ad8da9841252fccfb0e1a2fa0e3756c92745dbc8358ba989896efe88961'
             'a312b3c88d1c109c23b45826dd80d47d06c34776b4bd956cc6c0906e90530b80712991e4b49bf99d2e0d8aa0fefbfbfa4af14c39a57de68e9cb2737833ea3798')
 
 package() {

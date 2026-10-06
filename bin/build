@@ -2,7 +2,7 @@
 # Builds Cuore's packages in a throwaway Arch Linux container, signs them, and
 # collects them into a signed pacman repository.
 #
-#   bin/build [--src <cuore checkout>] [--ref <commit>] [--out <dir>] [--unsigned] [package...]
+#   bin/build [--src <cuore checkout>] [--ref <commit>] [--out <dir>] [--release | --unsigned] [package...]
 #
 # Packages build in dependency order (PACKAGES below) and each finished package
 # is offered to the next ones through a local repository, so later packages
@@ -11,11 +11,18 @@
 # uncommitted gets in. Nothing runs as root on the host: the container is
 # rootless podman, and makepkg runs as an unprivileged user inside it.
 #
-# Signing uses the key whose fingerprint is in the cuore checkout's
-# default/pacman/signing-key, from GNUPGHOME (default:
-# ~/.local/share/cuore-dev-signing). The key is copied into the container's
-# memory for the run and never written to the output. --unsigned builds without
-# a key, for CI checks (cuore D133); nothing unsigned is ever published.
+# Three ways to sign (cuore D133, D134):
+#   (default)   development builds for VM tests, signed with the development key
+#               in dev/ (secret half in ~/.local/share/cuore-dev-signing, or
+#               GNUPGHOME). Its own copies of Cuore's source and keyring get the
+#               development key in place of the release key, so systems
+#               installed from these builds trust what built them. Never published.
+#   --release   CI's builds, signed with the release key named in the cuore
+#               checkout's default/pacman/signing-key; GNUPGHOME must hold its
+#               signing subkey.
+#   --unsigned  CI's checks, without a key; nothing unsigned is published.
+# The secret key is copied into the container's memory for the run and never
+# written to the output.
 
 set -euo pipefail
 
@@ -34,6 +41,7 @@ ref=HEAD
 out="$ROOT/out"
 selected=()
 unsigned=0
+release=0
 
 while (($# > 0)); do
   case $1 in
@@ -41,6 +49,7 @@ while (($# > 0)); do
     --ref) ref=$2; shift 2 ;;
     --out) out=$2; shift 2 ;;
     --unsigned) unsigned=1; shift ;;
+    --release) release=1; shift ;;
     -h | --help) sed -n '2,17p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     -*) echo "unknown option: $1" >&2; exit 2 ;;
     *) selected+=("$1"); shift ;;
@@ -53,12 +62,19 @@ for package in "${selected[@]}"; do
 done
 
 [[ -n $src && -d $src/.git ]] || { echo "no cuore checkout at ${src:-../cuore}; pass --src" >&2; exit 2; }
-key=""
-if ((!unsigned)); then
+((unsigned && release)) && { echo "--release and --unsigned don't go together" >&2; exit 2; }
+key="" dev=0
+if ((release)); then
   key=$(tr -d '[:space:]' <"$src/default/pacman/signing-key")
-  [[ $key =~ ^[0-9A-F]{40}$ ]] || { echo "$src/default/pacman/signing-key holds no fingerprint" >&2; exit 1; }
+  gnupg=${GNUPGHOME:?--release needs GNUPGHOME with the release signing subkey}
+elif ((!unsigned)); then
+  dev=1
+  key=$(tr -d '[:space:]' <"$ROOT/dev/signing-key")
   gnupg=${GNUPGHOME:-$HOME/.local/share/cuore-dev-signing}
-  GNUPGHOME=$gnupg gpg --list-secret-keys "$key" >/dev/null 2>&1 ||
+fi
+if [[ -n $key ]]; then
+  [[ $key =~ ^[0-9A-F]{40}$ ]] || { echo "no full fingerprint for the signing key" >&2; exit 1; }
+  gpg --homedir "$gnupg" --list-secret-keys "$key" >/dev/null 2>&1 ||
     { echo "the signing key $key isn't in $gnupg" >&2; exit 1; }
 fi
 
@@ -66,6 +82,12 @@ work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
 mkdir -p "$out" "$work/cuore-src"
 git -C "$src" archive "$ref" | tar -x -C "$work/cuore-src"
+cp -r "$ROOT/pkgbuilds" "$work/pkgbuilds"
+if ((dev)); then
+  # Development builds trust the development key, in their own copies only.
+  cp "$ROOT/dev/signing-key" "$ROOT/dev/signing-key.asc" "$work/cuore-src/default/pacman/"
+  cp "$ROOT/dev/cuore.gpg" "$ROOT/dev/cuore-trusted" "$work/pkgbuilds/cuore-keyring/"
+fi
 commit=$(git -C "$src" rev-parse "$ref")
 # Development builds get an increasing version that sorts before the release:
 # 0.1.0dev<commits> < 0.1.0 (pacman orders an attached suffix as a pre-release).
@@ -75,17 +97,18 @@ chmod 600 "$work/signing.key"
 if ((unsigned)); then
   echo "Building ${#selected[@]} package(s) from cuore ${commit:0:12} ($devver), unsigned"
 else
-  GNUPGHOME=$gnupg gpg --batch --export-secret-keys "$key" >"$work/signing.key"
-  echo "Building ${#selected[@]} package(s) from cuore ${commit:0:12} ($devver), signing with ${key: -16}"
+  gpg --homedir "$gnupg" --batch --export-secret-keys "$key" >"$work/signing.key"
+  ((dev)) && kind="the development key" || kind="the release key"
+  echo "Building ${#selected[@]} package(s) from cuore ${commit:0:12} ($devver), signing with $kind ${key: -16}"
 fi
 
 podman run --rm \
-  -v "$ROOT/pkgbuilds:/pkgbuilds:ro,z" \
+  -v "$work/pkgbuilds:/pkgbuilds:ro,z" \
   -v "$work/cuore-src:/cuore-src:ro,z" \
   -v "$work/signing.key:/signing.key:ro,z" \
   -v "$ROOT/bin/check-names:/check-names:ro,z" \
   -v "$(cd -- "$out" && pwd):/out:z" \
-  -e KEY="$key" -e PACKAGES="${selected[*]}" -e DEVVER="$devver" -e COMMIT="$commit" \
+  -e KEY="$key" -e DEV="$dev" -e PACKAGES="${selected[*]}" -e DEVVER="$devver" -e COMMIT="$commit" \
   "$IMAGE" bash -euo pipefail -c '
     # Hand the output back to the invoking user (root here) whatever happens.
     trap "chown -R 0:0 /out" EXIT
@@ -125,7 +148,11 @@ podman run --rm \
         sed -i -e "s/^pkgver=.*/pkgver=$DEVVER/" -e "s/^_commit=.*/_commit=$COMMIT/" PKGBUILD
         # cuore depends on cuore-settings=<pkgver>; keep the pair in step.
       fi
-      sudo -u builder env "${env[@]}" PKGDEST=/out makepkg -s --noconfirm "${sign[@]}" 2>&1 | tail -n 3
+      checks=()
+      # The keyring of a development build holds the development key, so its
+      # checksums (made for the release key) are skipped.
+      [[ $DEV == 1 && $package == cuore-keyring ]] && checks=(--skipchecksums)
+      sudo -u builder env "${env[@]}" PKGDEST=/out makepkg -s --noconfirm "${checks[@]}" "${sign[@]}" 2>&1 | tail -n 3
       # Nothing Cuore ships names the desktop it was forked from (cuore D126):
       # a package that does is deleted before it reaches the repository.
       mapfile -t built < <(sudo -u builder env "${env[@]}" PKGDEST=/out makepkg --packagelist)

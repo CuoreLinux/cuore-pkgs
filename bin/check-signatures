@@ -1,0 +1,37 @@
+#!/bin/bash
+# Checks that every package and the repository database in DIR carry a valid
+# signature by the key in KEYFILE (cuore D134), before anything is published.
+#
+#   bin/check-signatures KEYFILE DIR
+
+set -euo pipefail
+
+(($# == 2)) || {
+  echo "usage: bin/check-signatures KEYFILE DIR" >&2
+  exit 2
+}
+keyfile=$1 dir=$2
+home=$(mktemp -d)
+chmod 700 "$home"
+trap 'gpgconf --homedir "${home:?}" --kill all 2>/dev/null; rm -rf "${home:?}"' EXIT
+gpg --homedir "$home" --batch --quiet --dearmor <"$keyfile" >"$home/trusted.gpg" 2>/dev/null ||
+  cp "$keyfile" "$home/trusted.gpg"
+
+failed=0 checked=0
+for file in "$dir"/*.pkg.tar.zst "$dir"/cuore.db.tar.gz "$dir"/cuore.files.tar.gz; do
+  [[ -e $file ]] || continue
+  checked=$((checked + 1))
+  if [[ ! -f $file.sig ]]; then
+    echo "unsigned: ${file##*/}" >&2
+    failed=1
+  elif ! gpgv --keyring "$home/trusted.gpg" "$file.sig" "$file" 2>/dev/null; then
+    echo "bad signature: ${file##*/}" >&2
+    failed=1
+  fi
+done
+((checked > 0)) || {
+  echo "nothing to check in $dir" >&2
+  exit 1
+}
+((failed == 0)) || exit 1
+echo "$checked files signed by $(gpg --homedir "$home" --show-keys --with-colons "$home/trusted.gpg" | awk -F: '/^fpr/ { print $10; exit }')"

@@ -1,0 +1,71 @@
+name: Release
+
+# Builds every package, signs it with Cuore's release signing subkey, and
+# publishes the signed repository as the GitHub release <channel>-x86_64, the
+# address Cuore's pacman.conf names (cuore D134). Each push to main publishes to
+# edge; rc and stable are published by hand ("Run workflow"). The repository is
+# private until the maintainer says "go", and so are its releases.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      channel:
+        description: Channel to publish
+        required: true
+        default: edge
+        type: choice
+        options: [edge, rc, stable]
+
+# Deny everything by default; the job opts in to what it needs.
+permissions: {}
+
+concurrency:
+  group: release-${{ inputs.channel || 'edge' }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 150
+    permissions:
+      contents: write # create the release and upload its files
+    env:
+      CHANNEL: ${{ inputs.channel || 'edge' }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: CuoreLinux/cuore
+          ref: distro
+          path: cuore-src
+          fetch-depth: 0
+          ssh-key: ${{ secrets.CUORE_READ_KEY }}
+          persist-credentials: false
+
+      - name: The signing subkey, in a keyring of its own
+        env:
+          SIGNING_KEY: ${{ secrets.CUORE_SIGNING_KEY }}
+        run: |
+          install -d -m 700 "$RUNNER_TEMP/gnupg"
+          gpg --homedir "$RUNNER_TEMP/gnupg" --batch --quiet --import <<<"$SIGNING_KEY"
+
+      - name: Build and sign every package
+        run: GNUPGHOME="$RUNNER_TEMP/gnupg" bin/build --release --src "$PWD/cuore-src" --out "$RUNNER_TEMP/out"
+
+      - name: Forget the signing subkey
+        if: always()
+        run: |
+          gpgconf --homedir "$RUNNER_TEMP/gnupg" --kill all || true
+          rm -rf "${RUNNER_TEMP:?}/gnupg"
+
+      - name: Check every signature against Cuore's key
+        run: bin/check-signatures "$PWD/cuore-src/default/pacman/signing-key.asc" "$RUNNER_TEMP/out"
+
+      - name: Publish to ${{ env.CHANNEL }}-x86_64
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bin/publish "$CHANNEL-x86_64" "$RUNNER_TEMP/out"
