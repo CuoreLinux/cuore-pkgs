@@ -1,6 +1,6 @@
 #!/bin/bash
 # Makes Cuore's release signing key, once, on the maintainer's computer
-# (cuore D133). Run it yourself: it asks you for the key's passphrase.
+# (cuore D133). Run it yourself: it asks for the key's passphrase in the terminal.
 #
 #   bin/make-release-key
 #
@@ -36,6 +36,17 @@ if [[ -d $KEYRING ]] && gpg --homedir "$KEYRING" --list-secret-keys --with-colon
   die "$KEYRING already holds a key; this makes the key only once"
 fi
 [[ ! -e $BACKUP ]] || die "$BACKUP already exists; move it away first"
+[[ ! -e $KEYRING.new && ! -e $BACKUP.new ]] || die "$KEYRING.new or $BACKUP.new is left from an earlier try; delete it first"
+
+# Asked here rather than in gpg's own window, which may not appear (it timed
+# out on the first try). Read twice; at least 12 characters.
+echo "Choose the key's passphrase. You type it only to renew the key or make a"
+echo "new subkey, never to publish. At least 12 characters; it isn't shown."
+IFS= read -rsp "Passphrase: " passphrase && echo
+IFS= read -rsp "Again: " again && echo
+[[ $passphrase == "$again" ]] || die "the two passphrases differ; nothing was made"
+((${#passphrase} >= 12)) || die "the passphrase is shorter than 12 characters; nothing was made"
+unset again
 
 # The key is made in a throwaway keyring without a passphrase, so the CI
 # subkey can be exported without one (CI can't type a passphrase); your copy
@@ -58,20 +69,32 @@ sub=$(gpg --homedir "$work" --list-keys --with-colons "$main" | awk -F: '/^fpr/ 
 
 gpg --homedir "$work" --batch --armor --export-secret-subkeys "$sub!" >"$work/ci-subkey.asc"
 
-install -d -m 700 "$KEYRING"
-gpg --homedir "$work" --batch --export-secret-keys "$main" | gpg --homedir "$KEYRING" --batch --quiet --import
-echo "Now choose the key's passphrase. You type it only to renew the key or make a new subkey."
-gpg --homedir "$KEYRING" ${CUORE_RELEASE_TEST_PASSPHRASE:+--batch --pinentry-mode loopback --passphrase-fd 3} \
-  --passwd "$main" 3<<<"${CUORE_RELEASE_TEST_PASSPHRASE:-}"
+# Your copy and the backup are put together in $KEYRING.new and $BACKUP.new
+# and moved into place only at the end, after GitHub has the subkey, so a
+# failure never leaves an unprotected or half-made key behind.
+staging=$KEYRING.new
+backup=$BACKUP.new
+install -d -m 700 "$staging" "$backup"
+trap 'cleanup; gpgconf --homedir "${staging:?}" --kill all 2>/dev/null || true; rm -rf "${staging:?}" "${backup:?}"' EXIT
+gpg --homedir "$work" --batch --export-secret-keys "$main" | gpg --homedir "$staging" --batch --quiet --import
+gpg --homedir "$staging" --batch --pinentry-mode loopback --passphrase-fd 3 --passwd "$main" 3<<<"$passphrase"
+gpgconf --homedir "$staging" --kill all 2>/dev/null || true
+if gpg --homedir "$staging" --batch --pinentry-mode loopback --passphrase '' -u "$main" --detach-sign -o /dev/null "$0" 2>/dev/null; then
+  die "the key didn't take the passphrase; nothing was kept"
+fi
 
-install -d -m 700 "$BACKUP"
-gpg --homedir "$KEYRING" --armor --export "$main" >"$BACKUP/cuore-release-public.asc"
-gpg --homedir "$KEYRING" --armor ${CUORE_RELEASE_TEST_PASSPHRASE:+--batch --pinentry-mode loopback --passphrase-fd 3} \
-  --export-secret-keys "$main" >"$BACKUP/cuore-release-secret.asc" 3<<<"${CUORE_RELEASE_TEST_PASSPHRASE:-}"
-cp "$work/openpgp-revocs.d/$main.rev" "$BACKUP/cuore-release-revocation.asc"
-chmod 600 "$BACKUP"/*
+gpg --homedir "$staging" --armor --export "$main" >"$backup/cuore-release-public.asc"
+gpg --homedir "$staging" --batch --armor --pinentry-mode loopback --passphrase-fd 3 \
+  --export-secret-keys "$main" >"$backup/cuore-release-secret.asc" 3<<<"$passphrase"
+cp "$work/openpgp-revocs.d/$main.rev" "$backup/cuore-release-revocation.asc"
+chmod 600 "$backup"/*
+unset passphrase
+gpgconf --homedir "$staging" --kill all 2>/dev/null || true
+[[ ! -e $KEYRING ]] || rmdir "$KEYRING" 2>/dev/null || die "$KEYRING isn't empty; nothing was kept"
 
 gh secret set CUORE_SIGNING_KEY --repo "$REPO" <"$work/ci-subkey.asc"
+mv "$staging" "$KEYRING"
+mv "$backup" "$BACKUP"
 
 cat <<EOF
 

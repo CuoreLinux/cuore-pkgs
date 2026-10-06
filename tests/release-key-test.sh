@@ -32,15 +32,33 @@ cat >"$tmp/bin/gh" <<'SH'
 #!/bin/bash
 case "$1 $2" in
 "auth status") exit 0 ;;
-"secret set") [[ $3 == CUORE_SIGNING_KEY && $5 == test/repo ]] && cat >"$GH_SECRET" ;;
+"secret set") [[ ${GH_FAIL:-} == 1 ]] && exit 1; [[ $3 == CUORE_SIGNING_KEY && $5 == test/repo ]] && cat >"$GH_SECRET" ;;
 *) echo "unexpected gh $*" >&2; exit 99 ;;
 esac
 SH
 chmod +x "$tmp/bin/gh"
 
-HOME=$tmp/home TMPDIR=$tmp/scratch PATH="$tmp/bin:$PATH" GH_SECRET=$tmp/secret \
-  CUORE_RELEASE_KEYRING=$tmp/keyring CUORE_RELEASE_BACKUP=$tmp/backup CUORE_RELEASE_REPO=test/repo \
-  CUORE_RELEASE_TEST_PASSPHRASE=test-passphrase "$ROOT/bin/make-release-key" >"$tmp/out" 2>&1 ||
+# make_key PASSPHRASE AGAIN [env...]: runs the script with the two typed answers.
+make_key() {
+  local first=$1 second=$2
+  shift 2
+  printf '%s\n%s\n' "$first" "$second" |
+    env HOME="$tmp/home" TMPDIR="$tmp/scratch" PATH="$tmp/bin:$PATH" GH_SECRET="$tmp/secret" \
+      CUORE_RELEASE_KEYRING="$tmp/keyring" CUORE_RELEASE_BACKUP="$tmp/backup" CUORE_RELEASE_REPO=test/repo \
+      "$@" "$ROOT/bin/make-release-key"
+}
+nothing_made() {
+  [[ ! -e $tmp/keyring && ! -e $tmp/backup && ! -e $tmp/keyring.new && ! -e $tmp/backup.new && ! -e $tmp/secret ]]
+}
+
+out=$(make_key test-passphrase other-passphrase 2>&1) || true
+if [[ $out == *"passphrases differ"* ]] && nothing_made; then pass "different passphrases make nothing"; else fail "different passphrases make nothing"; fi
+out=$(make_key short short 2>&1) || true
+if [[ $out == *"shorter than 12"* ]] && nothing_made; then pass "a short passphrase makes nothing"; else fail "a short passphrase makes nothing"; fi
+out=$(make_key test-passphrase test-passphrase GH_FAIL=1 2>&1) || true
+if nothing_made; then pass "if GitHub refuses the subkey, nothing is kept"; else fail "if GitHub refuses the subkey, nothing is kept"; fi
+
+make_key test-passphrase test-passphrase >"$tmp/out" 2>&1 ||
   {
     cat "$tmp/out"
     fail "the script runs"
@@ -80,8 +98,7 @@ check "the throwaway keyring is gone" test -z "$(find "$tmp/scratch" -mindepth 1
 check "the script never makes a keyring in the home folder" test ! -e "$tmp/home/.gnupg"
 
 status=0
-out=$(HOME=$tmp/home PATH="$tmp/bin:$PATH" CUORE_RELEASE_KEYRING=$tmp/keyring CUORE_RELEASE_BACKUP=$tmp/backup2 \
-  CUORE_RELEASE_REPO=test/repo "$ROOT/bin/make-release-key" 2>&1) || status=$?
+out=$(make_key test-passphrase test-passphrase CUORE_RELEASE_BACKUP="$tmp/backup2" 2>&1) || status=$?
 if ((status != 0)) && [[ $out == *"already holds a key"* ]]; then
   pass "a second key is refused"
 else
