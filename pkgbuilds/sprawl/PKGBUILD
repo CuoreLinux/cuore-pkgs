@@ -1,6 +1,6 @@
 # Maintainer: Antonio Piattelli <hello@antoniopiattelli.com>
 pkgname=sprawl
-pkgver=0.1.0
+pkgver=0.3.0
 pkgrel=1
 pkgdesc='Keyboard-first pixel-art city builder'
 arch=('x86_64')
@@ -9,7 +9,7 @@ license=('MIT')
 depends=('libgl' 'libxrandr' 'libxcursor' 'libxinerama' 'libxi' 'alsa-lib')
 makedepends=('go')
 source=("$pkgname-$pkgver.tar.gz::$url/archive/refs/tags/v$pkgver.tar.gz")
-sha256sums=('a94694793aed6eafdce02b99a693ace19014c0fc0cc96ab5441d70cf4a839109')
+sha256sums=('85d999364876b5083643dcd7da54c9cf32a87e80e008781e1d011e1e520b93f6')
 
 # Based on the upstream dist/PKGBUILD. `make install` depends on `build`, so it
 # gets the same flags as build() and doesn't relink without them.
