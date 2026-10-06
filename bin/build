@@ -2,7 +2,7 @@
 # Builds Cuore's packages in a throwaway Arch Linux container, signs them, and
 # collects them into a signed pacman repository.
 #
-#   bin/build [--src <cuore checkout>] [--ref <commit>] [--out <dir>] [package...]
+#   bin/build [--src <cuore checkout>] [--ref <commit>] [--out <dir>] [--unsigned] [package...]
 #
 # Packages build in dependency order (PACKAGES below) and each finished package
 # is offered to the next ones through a local repository, so later packages
@@ -14,7 +14,8 @@
 # Signing uses the key whose fingerprint is in the cuore checkout's
 # default/pacman/signing-key, from GNUPGHOME (default:
 # ~/.local/share/cuore-dev-signing). The key is copied into the container's
-# memory for the run and never written to the output.
+# memory for the run and never written to the output. --unsigned builds without
+# a key, for CI checks (cuore D133); nothing unsigned is ever published.
 
 set -euo pipefail
 
@@ -22,8 +23,9 @@ ROOT=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
 
 PACKAGES=(
   limine-mkinitcpio-hook limine-snapper-sync xdg-terminal-exec yaru-icon-theme
-  hyprland-preview-share-picker
+  hyprland-preview-share-picker yay ufw-docker
   cuore-keyring cuore-settings cuore
+  cutline jotter sprawl
 )
 IMAGE=docker.io/library/archlinux:base@sha256:f3691b4dde62ba4c4b6f0ae2c1fbf28e8c0c8c4b9a35c7e06dc1f70e21aa29f6
 
@@ -31,12 +33,14 @@ src=$(cd -- "$ROOT/../cuore" 2>/dev/null && pwd || true)
 ref=HEAD
 out="$ROOT/out"
 selected=()
+unsigned=0
 
 while (($# > 0)); do
   case $1 in
     --src) src=$(cd -- "$2" && pwd); shift 2 ;;
     --ref) ref=$2; shift 2 ;;
     --out) out=$2; shift 2 ;;
+    --unsigned) unsigned=1; shift ;;
     -h | --help) sed -n '2,17p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     -*) echo "unknown option: $1" >&2; exit 2 ;;
     *) selected+=("$1"); shift ;;
@@ -49,11 +53,14 @@ for package in "${selected[@]}"; do
 done
 
 [[ -n $src && -d $src/.git ]] || { echo "no cuore checkout at ${src:-../cuore}; pass --src" >&2; exit 2; }
-key=$(tr -d '[:space:]' <"$src/default/pacman/signing-key")
-[[ $key =~ ^[0-9A-F]{40}$ ]] || { echo "$src/default/pacman/signing-key holds no fingerprint" >&2; exit 1; }
-gnupg=${GNUPGHOME:-$HOME/.local/share/cuore-dev-signing}
-GNUPGHOME=$gnupg gpg --list-secret-keys "$key" >/dev/null 2>&1 ||
-  { echo "the signing key $key isn't in $gnupg" >&2; exit 1; }
+key=""
+if ((!unsigned)); then
+  key=$(tr -d '[:space:]' <"$src/default/pacman/signing-key")
+  [[ $key =~ ^[0-9A-F]{40}$ ]] || { echo "$src/default/pacman/signing-key holds no fingerprint" >&2; exit 1; }
+  gnupg=${GNUPGHOME:-$HOME/.local/share/cuore-dev-signing}
+  GNUPGHOME=$gnupg gpg --list-secret-keys "$key" >/dev/null 2>&1 ||
+    { echo "the signing key $key isn't in $gnupg" >&2; exit 1; }
+fi
 
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
@@ -63,10 +70,14 @@ commit=$(git -C "$src" rev-parse "$ref")
 # Development builds get an increasing version that sorts before the release:
 # 0.1.0dev<commits> < 0.1.0 (pacman orders an attached suffix as a pre-release).
 devver="0.1.0dev$(git -C "$src" rev-list --count "$ref")"
-GNUPGHOME=$gnupg gpg --batch --export-secret-keys "$key" >"$work/signing.key"
+: >"$work/signing.key"
 chmod 600 "$work/signing.key"
-
-echo "Building ${#selected[@]} package(s) from cuore ${commit:0:12} ($devver), signing with ${key: -16}"
+if ((unsigned)); then
+  echo "Building ${#selected[@]} package(s) from cuore ${commit:0:12} ($devver), unsigned"
+else
+  GNUPGHOME=$gnupg gpg --batch --export-secret-keys "$key" >"$work/signing.key"
+  echo "Building ${#selected[@]} package(s) from cuore ${commit:0:12} ($devver), signing with ${key: -16}"
+fi
 
 podman run --rm \
   -v "$ROOT/pkgbuilds:/pkgbuilds:ro,z" \
@@ -83,14 +94,21 @@ podman run --rm \
     useradd -m builder
     echo "builder ALL=(ALL) NOPASSWD: /usr/bin/pacman" >/etc/sudoers.d/builder
 
-    install -d -o builder -m 700 /home/builder/.gnupg
-    sudo -u builder gpg --batch --quiet --import </signing.key
-    pacman-key --init >/dev/null 2>&1
-    sudo -u builder gpg --batch --export "$KEY" | pacman-key --add - >/dev/null
-    pacman-key --lsign-key "$KEY" >/dev/null
+    sign=() repo_sign=()
+    if [[ -n $KEY ]]; then
+      install -d -o builder -m 700 /home/builder/.gnupg
+      sudo -u builder gpg --batch --quiet --import </signing.key
+      pacman-key --init >/dev/null 2>&1
+      sudo -u builder gpg --batch --export "$KEY" | pacman-key --add - >/dev/null
+      pacman-key --lsign-key "$KEY" >/dev/null
+      sign=(--sign --key "$KEY") repo_sign=(-s -k "$KEY")
+    else
+      # Unsigned CI builds: the local repository of this run only.
+      printf "\n[cuore]\nSigLevel = Optional TrustAll\nServer = file:///out\n" >>/etc/pacman.conf
+    fi
 
     # Earlier packages in this run satisfy later ones.
-    printf "\n[cuore]\nServer = file:///out\n" >>/etc/pacman.conf
+    grep -q "^\[cuore\]" /etc/pacman.conf || printf "\n[cuore]\nServer = file:///out\n" >>/etc/pacman.conf
     chown -R builder /out
     [[ -f /out/cuore.db.tar.gz ]] || sudo -u builder repo-add -q /out/cuore.db.tar.gz
     pacman -Sy >/dev/null
@@ -107,7 +125,7 @@ podman run --rm \
         sed -i -e "s/^pkgver=.*/pkgver=$DEVVER/" -e "s/^_commit=.*/_commit=$COMMIT/" PKGBUILD
         # cuore depends on cuore-settings=<pkgver>; keep the pair in step.
       fi
-      sudo -u builder env "${env[@]}" PKGDEST=/out makepkg -s --noconfirm --sign --key "$KEY" 2>&1 | tail -n 3
+      sudo -u builder env "${env[@]}" PKGDEST=/out makepkg -s --noconfirm "${sign[@]}" 2>&1 | tail -n 3
       # Nothing Cuore ships names the desktop it was forked from (cuore D126):
       # a package that does is deleted before it reaches the repository.
       mapfile -t built < <(sudo -u builder env "${env[@]}" PKGDEST=/out makepkg --packagelist)
@@ -116,7 +134,7 @@ podman run --rm \
         exit 1
       }
       # -p: a package file left from an older build must not replace a newer one.
-      sudo -u builder repo-add -q -p -s -k "$KEY" /out/cuore.db.tar.gz /out/*.pkg.tar.zst
+      sudo -u builder repo-add -q -p "${repo_sign[@]}" /out/cuore.db.tar.gz /out/*.pkg.tar.zst
       pacman -Sy >/dev/null
     done
   '

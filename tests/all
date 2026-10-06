@@ -1,0 +1,22 @@
+#!/bin/bash
+# Runs cuore-pkgs' own tests (they change nothing outside throwaway folders).
+
+set -uo pipefail
+
+ROOT=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
+cd "$ROOT" || exit 1
+
+failed=()
+for test in tests/check-names-test.sh tests/pinned-sources-test.sh tests/build-list-test.sh; do
+  printf '==> %s\n' "$test"
+  bash "$test" || failed+=("$test")
+done
+printf '==> tools/rebrand --check\n'
+tools/rebrand --check || failed+=("tools/rebrand --check")
+
+if ((${#failed[@]} > 0)); then
+  printf '\nFailed:\n' >&2
+  printf '  %s\n' "${failed[@]}" >&2
+  exit 1
+fi
+echo "All tests passed."
