@@ -4,9 +4,9 @@ The packages Cuore builds itself: `cuore`, `cuore-settings`, `cuore-keyring`, an
 desktop's dependencies that aren't in Arch Linux's official repositories (the Limine
 hooks, `xdg-terminal-exec`, the Yaru icons, the share picker and Tensaku), and
 `yay`, which installs the chooser's AUR extras, and `ufw-docker`, which keeps Docker's
-published ports behind the firewall. Two chooser extras are built here too:
-Cutline (a video editor) and Jotter (terminal notes), both MIT, from their
-released tags.
+published ports behind the firewall. Three chooser extras are built here too:
+Cutline (a video editor), Jotter (terminal notes) and Sprawl (a city-building
+game), all MIT, from their released tags.
 
 `bin/build` builds them in a throwaway Arch Linux container (rootless podman), signs
 each package and the repository database with Cuore's key, and writes a pacman

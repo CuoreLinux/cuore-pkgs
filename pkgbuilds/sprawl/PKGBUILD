@@ -1,0 +1,42 @@
+# Maintainer: Antonio Piattelli <hello@antoniopiattelli.com>
+pkgname=sprawl
+pkgver=0.1.0
+pkgrel=1
+pkgdesc='Keyboard-first pixel-art city builder'
+arch=('x86_64')
+url='https://github.com/antoniowav/sprawl'
+license=('MIT')
+depends=('libgl' 'libxrandr' 'libxcursor' 'libxinerama' 'libxi' 'alsa-lib')
+makedepends=('go')
+source=("$pkgname-$pkgver.tar.gz::$url/archive/refs/tags/v$pkgver.tar.gz")
+sha256sums=('a94694793aed6eafdce02b99a693ace19014c0fc0cc96ab5441d70cf4a839109')
+
+# Based on the upstream dist/PKGBUILD. `make install` depends on `build`, so it
+# gets the same flags as build() and doesn't relink without them.
+_goflags='-buildmode=pie -trimpath -mod=readonly -modcacherw'
+
+prepare() {
+  cd "$pkgname-$pkgver"
+  export GOPATH="$srcdir/gopath"
+  go mod download -modcacherw
+}
+
+build() {
+  cd "$pkgname-$pkgver"
+  export GOPATH="$srcdir/gopath"
+  export CGO_CPPFLAGS="$CPPFLAGS" CGO_CFLAGS="$CFLAGS" CGO_CXXFLAGS="$CXXFLAGS" CGO_LDFLAGS="$LDFLAGS"
+  make GOFLAGS="$_goflags" VERSION="$pkgver"
+}
+
+check() {
+  cd "$pkgname-$pkgver"
+  export GOPATH="$srcdir/gopath" GOFLAGS='-mod=readonly -modcacherw'
+  go test ./sim ./theme ./config ./input ./sound
+}
+
+package() {
+  cd "$pkgname-$pkgver"
+  export GOPATH="$srcdir/gopath"
+  export CGO_CPPFLAGS="$CPPFLAGS" CGO_CFLAGS="$CFLAGS" CGO_CXXFLAGS="$CXXFLAGS" CGO_LDFLAGS="$LDFLAGS"
+  make install PREFIX=/usr DESTDIR="$pkgdir" GOFLAGS="$_goflags" VERSION="$pkgver"
+}
