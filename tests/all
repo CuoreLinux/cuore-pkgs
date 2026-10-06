@@ -7,7 +7,7 @@ ROOT=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
 cd "$ROOT" || exit 1
 
 failed=()
-for test in tests/check-names-test.sh tests/pinned-sources-test.sh tests/build-list-test.sh; do
+for test in tests/check-names-test.sh tests/pinned-sources-test.sh tests/build-list-test.sh tests/release-key-test.sh; do
   printf '==> %s\n' "$test"
   bash "$test" || failed+=("$test")
 done

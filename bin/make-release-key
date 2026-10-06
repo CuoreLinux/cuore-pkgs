@@ -1,0 +1,85 @@
+#!/bin/bash
+# Makes Cuore's release signing key, once, on the maintainer's computer
+# (cuore D133). Run it yourself: it asks you for the key's passphrase.
+#
+#   bin/make-release-key
+#
+# It makes a main key (it only certifies, and stays on this computer) and a
+# signing subkey, both expiring in two years. The subkey goes to GitHub as the
+# CUORE_SIGNING_KEY secret of CuoreLinux/cuore-pkgs, so CI can sign packages;
+# GitHub never sees the main key, which can revoke that subkey and make a new
+# one without users trusting a new key. Afterwards:
+#
+#   ~/.local/share/cuore-release-signing   the key, protected by your passphrase
+#   ~/cuore-release-key-backup/            a backup and a revocation certificate:
+#                                          copy it to a USB stick, keep that safe
+#
+# Every gpg call names its keyring folder, so nothing touches ~/.gnupg.
+
+set -euo pipefail
+
+IDENTITY="Cuore Linux package signing <hello@antoniopiattelli.com>"
+KEYRING=${CUORE_RELEASE_KEYRING:-$HOME/.local/share/cuore-release-signing}
+BACKUP=${CUORE_RELEASE_BACKUP:-$HOME/cuore-release-key-backup}
+REPO=${CUORE_RELEASE_REPO:-CuoreLinux/cuore-pkgs}
+
+die() {
+  echo "make-release-key: $*" >&2
+  exit 1
+}
+
+[[ -n $KEYRING && -n $BACKUP ]] || die "no folder for the key or the backup"
+command -v gpg >/dev/null || die "gpg is missing"
+command -v gh >/dev/null || die "gh is missing"
+gh auth status >/dev/null 2>&1 || die "gh isn't logged in (gh auth login)"
+if [[ -d $KEYRING ]] && gpg --homedir "$KEYRING" --list-secret-keys --with-colons 2>/dev/null | grep -q '^sec'; then
+  die "$KEYRING already holds a key; this makes the key only once"
+fi
+[[ ! -e $BACKUP ]] || die "$BACKUP already exists; move it away first"
+
+# The key is made in a throwaway keyring without a passphrase, so the CI
+# subkey can be exported without one (CI can't type a passphrase); your copy
+# gets its passphrase below, and the throwaway keyring is deleted.
+work=$(mktemp -d)
+chmod 700 "$work"
+cleanup() {
+  gpgconf --homedir "${work:?}" --kill all 2>/dev/null || true
+  rm -rf "${work:?}"
+}
+trap cleanup EXIT
+quiet=(--homedir "$work" --batch --quiet --pinentry-mode loopback --passphrase '')
+
+echo "Making the key for: $IDENTITY"
+gpg "${quiet[@]}" --quick-gen-key "$IDENTITY" ed25519 cert 2y
+main=$(gpg --homedir "$work" --list-keys --with-colons | awk -F: '/^fpr/ { print $10; exit }')
+gpg "${quiet[@]}" --quick-add-key "$main" ed25519 sign 2y
+sub=$(gpg --homedir "$work" --list-keys --with-colons "$main" | awk -F: '/^fpr/ { n++; if (n == 2) print $10 }')
+[[ $main =~ ^[0-9A-F]{40}$ && $sub =~ ^[0-9A-F]{40}$ ]] || die "the key wasn't made as expected"
+
+gpg --homedir "$work" --batch --armor --export-secret-subkeys "$sub!" >"$work/ci-subkey.asc"
+
+install -d -m 700 "$KEYRING"
+gpg --homedir "$work" --batch --export-secret-keys "$main" | gpg --homedir "$KEYRING" --batch --quiet --import
+echo "Now choose the key's passphrase. You type it only to renew the key or make a new subkey."
+gpg --homedir "$KEYRING" ${CUORE_RELEASE_TEST_PASSPHRASE:+--batch --pinentry-mode loopback --passphrase-fd 3} \
+  --passwd "$main" 3<<<"${CUORE_RELEASE_TEST_PASSPHRASE:-}"
+
+install -d -m 700 "$BACKUP"
+gpg --homedir "$KEYRING" --armor --export "$main" >"$BACKUP/cuore-release-public.asc"
+gpg --homedir "$KEYRING" --armor ${CUORE_RELEASE_TEST_PASSPHRASE:+--batch --pinentry-mode loopback --passphrase-fd 3} \
+  --export-secret-keys "$main" >"$BACKUP/cuore-release-secret.asc" 3<<<"${CUORE_RELEASE_TEST_PASSPHRASE:-}"
+cp "$work/openpgp-revocs.d/$main.rev" "$BACKUP/cuore-release-revocation.asc"
+chmod 600 "$BACKUP"/*
+
+gh secret set CUORE_SIGNING_KEY --repo "$REPO" <"$work/ci-subkey.asc"
+
+cat <<EOF
+
+Done.
+  Main key:     $main
+  Signing key:  $sub (also in GitHub as CUORE_SIGNING_KEY of $REPO)
+  Your copy:    $KEYRING (protected by your passphrase)
+  Backup:       $BACKUP
+Copy $BACKUP to a USB stick, keep the stick somewhere safe, and then delete
+the folder from this computer. Then tell Claude the main key's fingerprint.
+EOF
