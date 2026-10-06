@@ -1,0 +1,53 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+# Deny everything by default; jobs opt in to the minimum they need.
+permissions: {}
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Tools the tests use (bsdtar reads packages)
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq libarchive-tools
+      - run: tests/all
+
+  # Every package, built unsigned in a clean Arch container (cuore D133). Nothing
+  # here is published; the signed release has its own workflow.
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 150
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # cuore and cuore-settings build from Cuore's source, read with a
+      # read-only deploy key while that repository is private.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: CuoreLinux/cuore
+          ref: distro
+          path: cuore-src
+          fetch-depth: 0
+          ssh-key: ${{ secrets.CUORE_READ_KEY }}
+          persist-credentials: false
+      - name: Build every package
+        run: bin/build --unsigned --src "$PWD/cuore-src" --out "$RUNNER_TEMP/out"
+      - name: List what was built
+        run: ls -l "$RUNNER_TEMP/out"
