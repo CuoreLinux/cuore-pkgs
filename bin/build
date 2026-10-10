@@ -2,7 +2,7 @@
 # Builds Cuore's packages in a throwaway Arch Linux container, signs them, and
 # collects them into a signed pacman repository.
 #
-#   bin/build [--src <cuore checkout>] [--ref <commit>] [--out <dir>] [--release | --unsigned] [package...]
+#   bin/build [--src <cuore checkout>] [--ref <commit or tag>] [--out <dir>] [--release | --unsigned] [package...]
 #
 # Packages build in dependency order (PACKAGES below) and each finished package
 # is offered to the next ones through a local repository, so later packages
@@ -89,17 +89,19 @@ if ((dev)); then
   cp "$ROOT/dev/cuore.gpg" "$ROOT/dev/cuore-trusted" "$work/pkgbuilds/cuore-keyring/"
 fi
 commit=$(git -C "$src" rev-parse "$ref")
-# Development builds get an increasing version that sorts before the release:
-# 0.1.0dev<commits> < 0.1.0 (pacman orders an attached suffix as a pre-release).
-devver="0.1.0dev$(git -C "$src" rev-list --count "$ref")"
+# The version comes from the commit (bin/pkgver, cuore D160): a release or
+# candidate tag names it, any other commit is <version>dev<commits>.
+pkgver=$("$ROOT/bin/pkgver" "$src" "$ref")
+tag=""
+[[ $pkgver == *dev* ]] || tag="v${pkgver/rc/-rc}"
 : >"$work/signing.key"
 chmod 600 "$work/signing.key"
 if ((unsigned)); then
-  echo "Building ${#selected[@]} package(s) from cuore ${commit:0:12} ($devver), unsigned"
+  echo "Building ${#selected[@]} package(s) from cuore ${commit:0:12} ($pkgver), unsigned"
 else
   gpg --homedir "$gnupg" --batch --export-secret-keys "$key" >"$work/signing.key"
   ((dev)) && kind="the development key" || kind="the release key"
-  echo "Building ${#selected[@]} package(s) from cuore ${commit:0:12} ($devver), signing with $kind ${key: -16}"
+  echo "Building ${#selected[@]} package(s) from cuore ${commit:0:12} ($pkgver), signing with $kind ${key: -16}"
 fi
 
 podman run --rm \
@@ -108,7 +110,7 @@ podman run --rm \
   -v "$work/signing.key:/signing.key:ro,z" \
   -v "$ROOT/bin/check-names:/check-names:ro,z" \
   -v "$(cd -- "$out" && pwd):/out:z" \
-  -e KEY="$key" -e DEV="$dev" -e PACKAGES="${selected[*]}" -e DEVVER="$devver" -e COMMIT="$commit" \
+  -e KEY="$key" -e DEV="$dev" -e PACKAGES="${selected[*]}" -e PKGVER="$pkgver" -e TAG="$tag" -e COMMIT="$commit" \
   "$IMAGE" bash -euo pipefail -c '
     # Hand the output back to the invoking user (root here) whatever happens.
     trap "chown -R 0:0 /out" EXIT
@@ -145,7 +147,7 @@ podman run --rm \
       env=()
       if [[ $package == cuore || $package == cuore-settings ]]; then
         env=(CUORE_SRC=/cuore-src)
-        sed -i -e "s/^pkgver=.*/pkgver=$DEVVER/" -e "s/^_commit=.*/_commit=$COMMIT/" PKGBUILD
+        sed -i -e "s/^pkgver=.*/pkgver=$PKGVER/" -e "s/^_tag=.*/_tag=$TAG/" -e "s/^_commit=.*/_commit=$COMMIT/" PKGBUILD
         # cuore depends on cuore-settings=<pkgver>; keep the pair in step.
       fi
       checks=()

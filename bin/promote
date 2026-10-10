@@ -1,0 +1,57 @@
+#!/bin/bash
+# Promotes the rc channel to stable (cuore D160): downloads the rc release,
+# checks every signature against Cuore's key, and publishes the very same files
+# to stable with bin/publish. Nothing is rebuilt, so stable gets exactly what
+# was tested on rc.
+#
+#   bin/promote KEYFILE [--allow-candidate]
+#
+# KEYFILE is Cuore's public key (the cuore checkout's
+# default/pacman/signing-key.asc). Stable carries releases only: if rc holds a
+# candidate (cuore X.Y.ZrcN), promoting it needs --allow-candidate, which is for
+# the private dry run (ROADMAP f) and nothing else. Needs gh logged in.
+
+set -euo pipefail
+
+ROOT=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
+
+keyfile="" allow_candidate=0
+for arg in "$@"; do
+  case $arg in
+    --allow-candidate) allow_candidate=1 ;;
+    -*)
+      echo "unknown option: $arg" >&2
+      exit 2
+      ;;
+    *) keyfile=$arg ;;
+  esac
+done
+[[ -n $keyfile && -f $keyfile ]] || {
+  echo "usage: bin/promote KEYFILE [--allow-candidate]" >&2
+  exit 2
+}
+
+dir=$(mktemp -d)
+trap 'rm -rf "${dir:?}"' EXIT
+gh release download rc-x86_64 --dir "$dir"
+
+shopt -s nullglob
+cuore=("$dir"/cuore-[0-9]*.pkg.tar.zst)
+((${#cuore[@]} == 1)) || {
+  echo "rc-x86_64 doesn't hold exactly one cuore package" >&2
+  exit 1
+}
+version=${cuore[0]##*/cuore-}
+version=${version%%-*}
+if [[ $version == *dev* ]]; then
+  echo "rc-x86_64 holds a development build ($version); publish a tagged build to rc first" >&2
+  exit 1
+fi
+if [[ $version == *rc* ]] && ((! allow_candidate)); then
+  echo "rc-x86_64 holds a candidate ($version); stable carries releases only" >&2
+  exit 1
+fi
+
+"$ROOT/bin/check-signatures" "$keyfile" "$dir"
+"$ROOT/bin/publish" stable-x86_64 "$dir"
+echo "promoted cuore $version from rc to stable"

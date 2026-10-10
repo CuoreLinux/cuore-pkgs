@@ -1,0 +1,46 @@
+name: Promote
+
+# Copies the rc release to stable without rebuilding it (cuore D160), after rc
+# has run a week without problems. Every signature is checked against Cuore's
+# key first; a candidate (X.Y.ZrcN) is promoted only when asked, for the
+# private dry run.
+
+on:
+  workflow_dispatch:
+    inputs:
+      allow_candidate:
+        description: Promote a release candidate (the private dry run only)
+        type: boolean
+        default: false
+
+permissions: {}
+
+concurrency:
+  group: release-stable
+  cancel-in-progress: false
+
+jobs:
+  promote:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: write # read the rc release and write the stable one
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: CuoreLinux/cuore
+          ref: distro
+          path: cuore-src
+          ssh-key: ${{ secrets.CUORE_READ_KEY }}
+          persist-credentials: false
+      - name: Promote rc to stable
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ALLOW_CANDIDATE: ${{ inputs.allow_candidate }}
+        run: |
+          flags=()
+          [[ $ALLOW_CANDIDATE == true ]] && flags=(--allow-candidate)
+          bin/promote "$PWD/cuore-src/default/pacman/signing-key.asc" "${flags[@]}"

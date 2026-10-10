@@ -1,0 +1,53 @@
+#!/bin/bash
+# Prints the version cuore and cuore-settings are built as from one commit of a
+# cuore checkout (cuore D160). The checkout's `version` file names the release
+# being worked towards; a tag on the commit makes it that release.
+#
+#   bin/pkgver SRC REF
+#
+#   tagged vX.Y.Z        X.Y.Z       (a release)
+#   tagged vX.Y.Z-rcN    X.Y.ZrcN    (a release candidate, sorts before X.Y.Z)
+#   anything else        X.Y.ZdevN   (N commits; sorts before X.Y.ZrcN)
+#
+# A tag must agree with the version file at that commit, so a release can't be
+# cut from a checkout that is still working towards a different one. After a
+# release, the version file moves on to the next one, so new development
+# builds sort after it.
+
+set -euo pipefail
+
+(($# == 2)) || {
+  echo "usage: bin/pkgver SRC REF" >&2
+  exit 2
+}
+src=$1 ref=$2
+
+commit=$(git -C "$src" rev-parse --verify --quiet "$ref^{commit}") || {
+  echo "no commit $ref in $src" >&2
+  exit 1
+}
+version=$(git -C "$src" show "$commit:version" 2>/dev/null | tr -d '[:space:]') || true
+[[ $version =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || {
+  echo "the version file at ${commit:0:12} doesn't hold X.Y.Z: '${version}'" >&2
+  exit 1
+}
+
+mapfile -t tags < <(git -C "$src" tag --points-at "$commit" --list 'v*')
+release=""
+for tag in "${tags[@]}"; do
+  if [[ $tag =~ ^v([0-9]+\.[0-9]+\.[0-9]+)(-rc([0-9]+))?$ ]]; then
+    [[ ${BASH_REMATCH[1]} == "$version" ]] || {
+      echo "$tag is on a commit whose version file says $version" >&2
+      exit 1
+    }
+    candidate=${BASH_REMATCH[1]}${BASH_REMATCH[3]:+rc${BASH_REMATCH[3]}}
+    # A commit tagged both as a candidate and as the release is the release.
+    [[ -z $release || $candidate != *rc* ]] && release=$candidate
+  fi
+done
+
+if [[ -n $release ]]; then
+  echo "$release"
+else
+  echo "${version}dev$(git -C "$src" rev-list --count "$commit")"
+fi

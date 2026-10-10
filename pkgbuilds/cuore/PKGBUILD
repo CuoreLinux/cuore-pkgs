@@ -1,14 +1,14 @@
 # Maintainer: Antonio Piattelli <hello@antoniopiattelli.com>
-# Release versioning convention (do not "fix" this; enforced by bin/cuore-pkgs release):
-#  - Pre-releases use the ATTACHED form pkgver=X.Y.ZrcN — NO separator. pacman's
-#    vercmp orders 4.0.0rc1 < 4.0.0rc2 < 4.0.0, but 4.0.0.rc1 and 4.0.0_rc1
-#    both sort AFTER 4.0.0 and would strand users on the pre-release.
+# Versions (cuore D160): bin/build sets pkgver, _tag and _commit from the commit it
+# builds, through bin/pkgver; the values below are placeholders.
+#  - Candidates use the ATTACHED form pkgver=X.Y.ZrcN, with no separator. pacman's
+#    vercmp orders 0.1.0dev9 < 0.1.0rc1 < 0.1.0rc2 < 0.1.0, but 0.1.0.rc1 and
+#    0.1.0_rc1 both sort AFTER 0.1.0 and would strand users on the candidate.
 #  - pkgrel resets to 1 whenever pkgver changes; bump pkgrel alone only to
 #    repackage the same source.
 #  - epoch is a manual escape hatch decided by a human; tooling never sets it.
-#  - _commit is the single source of truth for what gets built. _tag is
-#    provenance only (empty when cut from a bare commit). cuore and
-#    cuore-settings must always carry identical _tag/_commit/pkgver/sha256sums.
+#  - _commit is what gets built; _tag is provenance only (empty for development
+#    builds). cuore and cuore-settings always carry the same _tag, _commit and pkgver.
 pkgname='cuore'
 _tag=''
 _commit='3af3e810f4667a7fae17732d45406c36da97c04b'
