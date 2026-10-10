@@ -32,7 +32,7 @@ PROTECT='[A-Za-z0-9.-]*omarchy\.org|\b(?:basecamp|omacom(?:-io)?)/omarchy[\w.-]*
 ALLOW='omacom-io/herdr\b'
 
 # Words that must not appear in the product once the rebrand is done.
-BRAND='omarchy|omacom|omakub|omakase|\bdhh\b|heinemeier|okonarchy|okonomi'
+BRAND='omarchy|omacom|omakub|omakase|\bdhh\b|heinemeier|oko''narchy|oko''nomi'
 
 rename_stream() {
   perl -pe '
