@@ -85,6 +85,7 @@ depends_aarch64=(
 
 makedepends=(
   'git'
+  'gettext' # msgfmt, for translations (cuore D153)
 )
 
 # Source: the pinned release commit; set CUORE_SRC=/path/to/checkout to
@@ -156,6 +157,15 @@ package() {
   fi
   # Quickshell desktop shell tree.
   cp -a shell "$pkgdir/usr/share/cuore/"
+
+  # Translations of the chooser and the setup form (cuore D153), when there are any.
+  local po lang
+  for po in po/*.po; do
+    [[ -f $po ]] || continue
+    lang=$(basename "$po" .po)
+    install -d "$pkgdir/usr/share/locale/$lang/LC_MESSAGES"
+    msgfmt --check -o "$pkgdir/usr/share/locale/$lang/LC_MESSAGES/cuore.mo" "$po"
+  done
 
   # Runtime version file.
   install -Dm644 version "$pkgdir/usr/share/cuore/version"
