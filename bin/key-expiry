@@ -1,0 +1,46 @@
+#!/bin/bash
+# Says when Cuore's signing key, or any of its subkeys, expires (cuore D162), and
+# fails when that is DAYS away or less, so the key is renewed in time
+# (cuore's docs/keys.md).
+#
+#   bin/key-expiry [--days DAYS] [KEYFILE]
+#
+# KEYFILE defaults to the keyring package's pkgbuilds/cuore-keyring/cuore.gpg;
+# DAYS to 90.
+
+set -euo pipefail
+
+ROOT=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
+days=90 keyfile=$ROOT/pkgbuilds/cuore-keyring/cuore.gpg
+while (($# > 0)); do
+  case $1 in
+    --days)
+      days=$2
+      shift 2
+      ;;
+    -*)
+      echo "usage: bin/key-expiry [--days DAYS] [KEYFILE]" >&2
+      exit 2
+      ;;
+    *)
+      keyfile=$1
+      shift
+      ;;
+  esac
+done
+
+home=$(mktemp -d)
+trap 'rm -rf "${home:?}"' EXIT
+# The first key or subkey to expire; a key without an expiry date never does.
+first=$(gpg --homedir "$home" --show-keys --with-colons "$keyfile" 2>/dev/null |
+  awk -F: '/^(pub|sub):/ && $7 != "" { print $7 }' | sort -n | head -n 1)
+[[ -n $first ]] || {
+  echo "no key in $keyfile expires"
+  exit 0
+}
+left=$(((first - $(date +%s)) / 86400))
+echo "Cuore's signing key expires on $(date -u -d "@$first" +%F), in $left days"
+((left > days)) || {
+  echo "that is $days days or less away: renew it (docs/keys.md)" >&2
+  exit 1
+}

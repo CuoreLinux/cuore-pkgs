@@ -1,0 +1,46 @@
+name: Key expiry
+
+# Checks every month when Cuore's signing key expires (cuore D162) and, from
+# three months before, opens an issue labelled signing-key: renewing it is a
+# job for the maintainer's computer, where the main key is (cuore's
+# docs/keys.md). Each run re-enables this workflow, so GitHub never turns the
+# schedule off after 60 days without a commit.
+
+on:
+  schedule:
+    - cron: "41 7 2 * *"
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  check:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      issues: write # open the signing-key issue
+      actions: write # re-enable this workflow so the schedule never lapses
+    steps:
+      - name: Keep the schedule alive
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh api -X PUT "repos/$GITHUB_REPOSITORY/actions/workflows/key-expiry.yml/enable"
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Open an issue when the key expires within 90 days
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if report=$(bin/key-expiry --days 90 2>&1); then
+            echo "$report"
+            exit 0
+          fi
+          echo "$report"
+          gh label create signing-key --color b60205 --description "Cuore's signing key needs renewing" 2>/dev/null || true
+          [[ -z $(gh issue list --label signing-key --state open --json number --jq '.[0].number') ]] || exit 0
+          gh issue create --title "Renew Cuore's signing key" --label signing-key \
+            --body "$report. cuore's docs/keys.md says how; it needs the main key, which is only on the maintainer's computer."
