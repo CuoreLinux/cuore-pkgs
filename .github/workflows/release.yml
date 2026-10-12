@@ -30,6 +30,11 @@ on:
 # Deny everything by default; the job opts in to what it needs.
 permissions: {}
 
+# gh acts on this repository only, never on a remote named in the checkout
+# (an upstream remote would otherwise become gh's default).
+env:
+  GH_REPO: ${{ github.repository }}
+
 concurrency:
   group: release-${{ inputs.channel || 'edge' }}
   cancel-in-progress: false
