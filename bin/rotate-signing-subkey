@@ -1,0 +1,152 @@
+#!/bin/bash
+# Replaces Cuore's signing subkey: revokes the one in use and makes a new one
+# (cuore docs/keys.md, "If the signing subkey leaks"; cuore D192). Run it
+# yourself, on the maintainer's computer: it asks for the key's passphrase.
+#
+#   bin/rotate-signing-subkey
+#
+# The main key stays, so systems keep trusting the same key; what changes is
+# the subkey that signs. Afterwards:
+#
+#   GitHub's CUORE_SIGNING_KEY          the new subkey, alone
+#   ~/.local/share/cuore-release-signing   the key with both subkeys, the old one revoked
+#   ~/.local/share/cuore-release-signing.before-<date>   the key as it was (kept)
+#   ~/cuore-release-key-backup/         a fresh backup: copy it to the USB stick
+#   ../cuore/default/pacman/signing-key.asc and pkgbuilds/cuore-keyring/cuore.gpg
+#                                       the public key, to be committed and released
+#
+# Everything is done on a copy and moved into place only at the end, after
+# GitHub has the new subkey, so a failure leaves the key as it was. Every gpg
+# call names its keyring folder, so nothing touches ~/.gnupg.
+
+set -euo pipefail
+
+ROOT=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
+KEYRING=${CUORE_RELEASE_KEYRING:-$HOME/.local/share/cuore-release-signing}
+BACKUP=${CUORE_RELEASE_BACKUP:-$HOME/cuore-release-key-backup}
+REPO=${CUORE_RELEASE_REPO:-CuoreLinux/cuore-pkgs}
+CUORE=${CUORE_SRC:-$ROOT/../cuore}
+KEYRING_PACKAGE=${CUORE_KEYRING_PACKAGE:-$ROOT/pkgbuilds/cuore-keyring}
+# For the test: write the CI subkey to this file instead of sending it to GitHub.
+SECRET_FILE=${CUORE_RELEASE_SECRET_FILE:-}
+
+die() {
+  echo "rotate-signing-subkey: $*" >&2
+  exit 1
+}
+
+command -v gpg >/dev/null || die "gpg is missing"
+[[ -d $KEYRING ]] || die "no key in $KEYRING"
+[[ -f $CUORE/default/pacman/signing-key ]] || die "no cuore checkout at $CUORE"
+[[ -d $KEYRING_PACKAGE ]] || die "no keyring package at $KEYRING_PACKAGE"
+if [[ -z $SECRET_FILE ]]; then
+  command -v gh >/dev/null || die "gh is missing"
+  gh auth status >/dev/null 2>&1 || die "gh isn't logged in (gh auth login)"
+fi
+main=$(tr -d '[:space:]' <"$CUORE/default/pacman/signing-key")
+[[ $main =~ ^[0-9A-F]{40}$ ]] || die "no full fingerprint in $CUORE/default/pacman/signing-key"
+gpg --homedir "$KEYRING" --list-secret-keys "$main" >/dev/null 2>&1 || die "the main key $main isn't in $KEYRING"
+
+stamp=$(date +%Y%m%d-%H%M%S)
+kept=$KEYRING.before-$stamp
+staging=$KEYRING.new
+backup=$BACKUP.new
+[[ ! -e $staging && ! -e $backup ]] || die "$staging or $backup is left from an earlier try; look at it and move it away first"
+[[ ! -e $BACKUP ]] || die "$BACKUP already exists; move it to the USB stick or away first"
+
+# The subkeys that can sign today: fingerprint lines follow their sub lines.
+valid_subkeys() {
+  gpg --homedir "$1" --list-keys --with-colons "$main" |
+    awk -F: '/^sub/ { ok = ($2 != "r" && $2 != "e") } /^fpr/ { n++; if (n > 1 && ok) print $10; ok = 0 }'
+}
+mapfile -t old < <(valid_subkeys "$KEYRING")
+((${#old[@]} == 1)) || die "expected one signing subkey in use, found ${#old[@]}"
+old=${old[0]}
+
+echo "Main key (stays):          $main"
+echo "Signing subkey to revoke:  $old"
+echo
+echo "Revoking can't be undone. Type the key's passphrase to go on, or Ctrl+C to stop."
+IFS= read -rsp "Passphrase: " passphrase && echo
+[[ -n $passphrase ]] || die "no passphrase; nothing was changed"
+
+work=$(mktemp -d)
+chmod 700 "$work"
+cleanup() {
+  gpgconf --homedir "${work:?}" --kill all 2>/dev/null || true
+  gpgconf --homedir "${staging:?}" --kill all 2>/dev/null || true
+  rm -rf "${work:?}" "${staging:?}" "${backup:?}"
+}
+trap cleanup EXIT
+
+cp -a "$KEYRING" "$staging"
+install -d -m 700 "$backup"
+loop=(--homedir "$staging" --batch --pinentry-mode loopback --passphrase-fd 3)
+
+# The passphrase is checked before anything is revoked.
+gpg "${loop[@]}" --armor --export-secret-keys "$main" >"$work/check.asc" 3<<<"$passphrase" 2>/dev/null ||
+  die "that isn't the key's passphrase; nothing was changed"
+
+echo "Revoking $old"
+printf '%s\n' "key $old" revkey y 1 "Replaced as a precaution (cuore D192)" "" y save |
+  gpg --homedir "$staging" --pinentry-mode loopback --passphrase-fd 3 --command-fd 0 --status-fd 1 --no-tty \
+    --edit-key "$main" 3<<<"$passphrase" >"$work/revoke.log" 2>&1 || true
+[[ -z $(valid_subkeys "$staging") ]] || { cat "$work/revoke.log" >&2; die "the subkey wasn't revoked; nothing was kept"; }
+
+echo "Making the new signing subkey"
+gpg "${loop[@]}" --quiet --quick-add-key "$main" ed25519 sign 2y 3<<<"$passphrase"
+mapfile -t new < <(valid_subkeys "$staging")
+((${#new[@]} == 1)) && [[ ${new[0]} =~ ^[0-9A-F]{40}$ && ${new[0]} != "$old" ]] || die "the new subkey wasn't made as expected; nothing was kept"
+new=${new[0]}
+
+# CI can't type a passphrase, so its copy of the new subkey has none. It is
+# made in a throwaway keyring: the subkey alone, its passphrase taken off.
+install -d -m 700 "$work/ci"
+gpg "${loop[@]}" --export-secret-subkeys "$new!" 3<<<"$passphrase" | gpg --homedir "$work/ci" --batch --quiet --import
+printf '%s\n' "$passphrase" "" "" |
+  gpg --homedir "$work/ci" --pinentry-mode loopback --command-fd 0 --status-fd 1 --no-tty --passwd "$main" >/dev/null 2>&1 || true
+gpgconf --homedir "$work/ci" --kill all 2>/dev/null || true
+gpg --homedir "$work/ci" --batch --pinentry-mode loopback --passphrase '' -u "$new!" \
+  --detach-sign -o "$work/probe.sig" "$0" 2>/dev/null || die "CI's copy of the new subkey still wants a passphrase; nothing was kept"
+gpg --homedir "$staging" --verify "$work/probe.sig" "$0" >/dev/null 2>&1 || die "the new subkey's signature doesn't verify; nothing was kept"
+gpg --homedir "$work/ci" --batch --armor --export-secret-subkeys "$new!" >"$work/ci-subkey.asc"
+# Field 15 of a sec line is "#" when the secret part isn't there.
+if gpg --homedir "$work/ci" --list-secret-keys --with-colons | awk -F: '$1 == "sec" && $15 != "#" { found = 1 } END { exit !found }'; then
+  die "CI's copy holds the main key; nothing was kept"
+fi
+
+gpg --homedir "$staging" --armor --export "$main" >"$backup/cuore-release-public.asc"
+gpg "${loop[@]}" --armor --export-secret-keys "$main" >"$backup/cuore-release-secret.asc" 3<<<"$passphrase"
+chmod 600 "$backup"/*
+unset passphrase
+gpgconf --homedir "$staging" --kill all 2>/dev/null || true
+
+# GitHub first: if this fails, the key on this computer is still as it was.
+if [[ -n $SECRET_FILE ]]; then
+  cp "$work/ci-subkey.asc" "$SECRET_FILE"
+else
+  gh secret set CUORE_SIGNING_KEY --repo "$REPO" <"$work/ci-subkey.asc"
+fi
+
+gpgconf --homedir "$KEYRING" --kill all 2>/dev/null || true
+mv "$KEYRING" "$kept"
+mv "$staging" "$KEYRING"
+mv "$backup" "$BACKUP"
+gpg --homedir "$KEYRING" --armor --export "$main" >"$CUORE/default/pacman/signing-key.asc"
+gpg --homedir "$KEYRING" --export "$main" >"$KEYRING_PACKAGE/cuore.gpg"
+
+cat <<EOF
+
+Done.
+  Main key (unchanged):  $main
+  Revoked subkey:        $old
+  New signing subkey:    $new (in GitHub as CUORE_SIGNING_KEY of $REPO)
+  Your copy:             $KEYRING
+  The key as it was:     $kept (keep it until the next release has gone out)
+  Backup:                $BACKUP
+
+Copy $BACKUP to the USB stick beside the old backup (the old one's revocation
+certificate for the main key is still the one to keep), then delete the folder
+from this computer. The public key was written to the cuore checkout and the
+keyring package: tell Claude the new subkey's fingerprint to finish the release.
+EOF
