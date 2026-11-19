@@ -7,7 +7,7 @@
 set -euo pipefail
 
 ROOT=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
-RELEASE=22B9E953F8077DF7868491D2DFD092CE6B437DF6
+RELEASE=5C76BE373746DACB4B4A40EDDD708E3A1E288C7D
 tmp=$(mktemp -d)
 chmod 700 "$tmp"
 trap 'gpgconf --homedir "$tmp" --kill all 2>/dev/null; rm -rf "${tmp:?}"' EXIT
