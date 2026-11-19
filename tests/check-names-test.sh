@@ -80,7 +80,7 @@ if ((status == 2)); then pass "no package is a usage error"; else fail "no packa
 # bin/build runs it inside the container before repo-add, on each package.
 build=$(<"$ROOT/bin/build")
 if grep -q '/check-names' <<<"$build" &&
-  [[ $(grep -n 'check-names' <<<"$build" | tail -1 | cut -d: -f1) -lt $(grep -n 'repo-add -q -p' <<<"$build" | cut -d: -f1) ]]; then
+  [[ $(grep -n 'check-names' <<<"$build" | tail -1 | cut -d: -f1) -lt $(grep -n 'repo-add -q -p' <<<"$build" | head -1 | cut -d: -f1) ]]; then
   pass "bin/build checks each package before adding it to the repository"
 else
   fail "bin/build checks each package before adding it to the repository"

@@ -21,8 +21,13 @@
 #               checkout's default/pacman/signing-key; GNUPGHOME must hold its
 #               signing subkey.
 #   --unsigned  CI's checks, without a key; nothing unsigned is published.
-# The secret key is copied into the container's memory for the run and never
-# written to the output.
+#
+# Building and signing are two containers (cuore D190). The first runs every
+# package's build code, fetched dependencies included, and never sees a key.
+# The second holds the key, has no network, and runs nothing from a package: it
+# signs the files the first one made and the repository's database. A build
+# that was tampered with can spoil one release; it cannot take the key that
+# every installed system trusts.
 
 set -euo pipefail
 
@@ -79,7 +84,7 @@ if [[ -n $key ]]; then
 fi
 
 work=$(mktemp -d)
-trap 'rm -rf "$work"' EXIT
+trap 'rm -rf "$work"; rm -f "$out/.built"' EXIT
 mkdir -p "$out" "$work/cuore-src"
 git -C "$src" archive "$ref" | tar -x -C "$work/cuore-src"
 cp -r "$ROOT/pkgbuilds" "$work/pkgbuilds"
@@ -104,13 +109,13 @@ else
   echo "Building ${#selected[@]} package(s) from cuore ${commit:0:12} ($pkgver), signing with $kind ${key: -16}"
 fi
 
+# The build container: no key, and no trace of one.
 podman run --rm \
   -v "$work/pkgbuilds:/pkgbuilds:ro,z" \
   -v "$work/cuore-src:/cuore-src:ro,z" \
-  -v "$work/signing.key:/signing.key:ro,z" \
   -v "$ROOT/bin/check-names:/check-names:ro,z" \
   -v "$(cd -- "$out" && pwd):/out:z" \
-  -e KEY="$key" -e DEV="$dev" -e PACKAGES="${selected[*]}" -e PKGVER="$pkgver" -e TAG="$tag" -e COMMIT="$commit" \
+  -e DEV="$dev" -e PACKAGES="${selected[*]}" -e PKGVER="$pkgver" -e TAG="$tag" -e COMMIT="$commit" \
   "$IMAGE" bash -euo pipefail -c '
     # Hand the output back to the invoking user (root here) whatever happens.
     trap "chown -R 0:0 /out" EXIT
@@ -119,22 +124,11 @@ podman run --rm \
     useradd -m builder
     echo "builder ALL=(ALL) NOPASSWD: /usr/bin/pacman" >/etc/sudoers.d/builder
 
-    sign=() repo_sign=()
-    if [[ -n $KEY ]]; then
-      install -d -o builder -m 700 /home/builder/.gnupg
-      sudo -u builder gpg --batch --quiet --import </signing.key
-      pacman-key --init >/dev/null 2>&1
-      sudo -u builder gpg --batch --export "$KEY" | pacman-key --add - >/dev/null
-      pacman-key --lsign-key "$KEY" >/dev/null
-      sign=(--sign --key "$KEY") repo_sign=(-s -k "$KEY")
-    else
-      # Unsigned CI builds: the local repository of this run only.
-      printf "\n[cuore]\nSigLevel = Optional TrustAll\nServer = file:///out\n" >>/etc/pacman.conf
-    fi
-
-    # Earlier packages in this run satisfy later ones.
-    grep -q "^\[cuore\]" /etc/pacman.conf || printf "\n[cuore]\nServer = file:///out\n" >>/etc/pacman.conf
+    # Earlier packages in this run satisfy later ones, through a repository
+    # that is this run only and unsigned until the signing container.
+    printf "\n[cuore]\nSigLevel = Never\nServer = file:///out\n" >>/etc/pacman.conf
     chown -R builder /out
+    rm -f /out/cuore.db*.sig /out/cuore.files*.sig /out/.built
     [[ -f /out/cuore.db.tar.gz ]] || sudo -u builder repo-add -q /out/cuore.db.tar.gz
     pacman -Sy >/dev/null
 
@@ -154,7 +148,7 @@ podman run --rm \
       # The keyring of a development build holds the development key, so its
       # checksums (made for the release key) are skipped.
       [[ $DEV == 1 && $package == cuore-keyring ]] && checks=(--skipchecksums)
-      sudo -u builder env "${env[@]}" PKGDEST=/out makepkg -s --noconfirm "${checks[@]}" "${sign[@]}" 2>&1 | tail -n 3
+      sudo -u builder env "${env[@]}" PKGDEST=/out makepkg -s --noconfirm "${checks[@]}" 2>&1 | tail -n 3
       # Nothing Cuore ships names the desktop it was forked from (cuore D126):
       # a package that does is deleted before it reaches the repository.
       mapfile -t built < <(sudo -u builder env "${env[@]}" PKGDEST=/out makepkg --packagelist)
@@ -163,9 +157,37 @@ podman run --rm \
         exit 1
       }
       # -p: a package file left from an older build must not replace a newer one.
-      sudo -u builder repo-add -q -p "${repo_sign[@]}" /out/cuore.db.tar.gz /out/*.pkg.tar.zst
+      for file in "${built[@]}"; do rm -f "$file.sig"; done
+      printf "%s\n" "${built[@]}" >>/out/.built
+      sudo -u builder repo-add -q -p /out/cuore.db.tar.gz /out/*.pkg.tar.zst
       pacman -Sy >/dev/null
     done
   '
+
+# The signing container: the key, no network, and no package code. It signs
+# what the build listed and adds it to the database again, which is what puts
+# each signature in the database and signs the database itself.
+if [[ -n $key ]]; then
+  podman run --rm --network none \
+    -v "$work/signing.key:/signing.key:ro,z" \
+    -v "$(cd -- "$out" && pwd):/out:z" \
+    -e KEY="$key" \
+    "$IMAGE" bash -euo pipefail -c '
+      export GNUPGHOME=/root/.gnupg
+      install -d -m 700 "$GNUPGHOME"
+      gpg --batch --quiet --import </signing.key
+      mapfile -t built </out/.built
+      ((${#built[@]} > 0)) || { echo "nothing was built to sign" >&2; exit 1; }
+      for file in "${built[@]}"; do
+        # Only package files in /out itself, and no link out of it.
+        [[ $file == /out/*.pkg.tar.zst && ${file#/out/} != */* && -f $file && ! -L $file ]] ||
+          { echo "refusing to sign $file" >&2; exit 1; }
+        rm -f "$file.sig"
+        gpg --batch --detach-sign --no-armor --local-user "$KEY" --output "$file.sig" "$file"
+      done
+      repo-add -q -p -s -k "$KEY" /out/cuore.db.tar.gz "${built[@]}"
+    '
+fi
+rm -f "$out/.built"
 
 echo "Done: $(cd -- "$out" && ls *.pkg.tar.zst | wc -l) package(s) in $out"
