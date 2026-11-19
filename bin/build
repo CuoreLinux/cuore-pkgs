@@ -148,7 +148,12 @@ podman run --rm \
       # The keyring of a development build holds the development key, so its
       # checksums (made for the release key) are skipped.
       [[ $DEV == 1 && $package == cuore-keyring ]] && checks=(--skipchecksums)
-      sudo -u builder env "${env[@]}" PKGDEST=/out makepkg -s --noconfirm "${checks[@]}" 2>&1 | tail -n 3
+      # Three lines of a good build, and enough of a failed one to see why.
+      if ! sudo -u builder env "${env[@]}" PKGDEST=/out makepkg -s --noconfirm "${checks[@]}" >/tmp/makepkg.log 2>&1; then
+        tail -n 60 /tmp/makepkg.log
+        exit 1
+      fi
+      tail -n 3 /tmp/makepkg.log
       # Nothing Cuore ships names the desktop it was forked from (cuore D126):
       # a package that does is deleted before it reaches the repository.
       mapfile -t built < <(sudo -u builder env "${env[@]}" PKGDEST=/out makepkg --packagelist)
