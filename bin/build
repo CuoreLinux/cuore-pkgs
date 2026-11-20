@@ -149,10 +149,18 @@ podman run --rm \
       # checksums (made for the release key) are skipped.
       [[ $DEV == 1 && $package == cuore-keyring ]] && checks=(--skipchecksums)
       # Three lines of a good build, and enough of a failed one to see why.
-      if ! sudo -u builder env "${env[@]}" PKGDEST=/out makepkg -s --noconfirm "${checks[@]}" >/tmp/makepkg.log 2>&1; then
+      # A build downloads its sources and often its dependencies, and one
+      # server not answering failed three releases in two days. A failed
+      # build is tried again, twice; what it had fetched is kept.
+      for attempt in 1 2 3; do
+        if sudo -u builder env "${env[@]}" PKGDEST=/out makepkg -s --noconfirm "${checks[@]}" >/tmp/makepkg.log 2>&1; then
+          break
+        fi
         tail -n 60 /tmp/makepkg.log
-        exit 1
-      fi
+        ((attempt < 3)) || exit 1
+        echo "==> $package failed (attempt $attempt of 3); trying again in 30 seconds"
+        sleep 30
+      done
       tail -n 3 /tmp/makepkg.log
       # Nothing Cuore ships names the desktop it was forked from (cuore D126):
       # a package that does is deleted before it reaches the repository.

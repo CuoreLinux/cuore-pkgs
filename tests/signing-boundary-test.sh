@@ -27,6 +27,7 @@ check "the build container is given no key file" absent 'signing\.key' "$build"
 check "the build container is given no key name" absent 'KEY=|\$KEY' "$build"
 check "the build container imports and signs nothing" absent 'gpg|--sign|repo-add[^|]* -s' "$build"
 
+check "a build that fails is tried again before the release is given up" present 'for attempt in 1 2 3; do' "$build"
 check "the signing container holds the key" present 'signing\.key:/signing\.key:ro' "$sign"
 check "the signing container has no network" present 'podman run --rm --network none' "$sign"
 check "the signing container builds and installs nothing" absent 'makepkg|pacman |sudo|/pkgbuilds|/cuore-src' "$sign"
