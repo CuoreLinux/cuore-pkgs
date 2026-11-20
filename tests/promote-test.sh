@@ -40,7 +40,7 @@ echo "$*" >>"$GH_LOG"
 case "$1 $2" in
 "release download") [[ $3 == rc-x86_64 ]] || exit 98; cp "$RC_DIR"/* "$5"/ ;;
 "release view") [[ " $* " == *" --json "* ]] && echo old-1-1-any.pkg.tar.zst; exit 0 ;;
-"release upload") shift 3; for f in "$@"; do [[ $f == --clobber ]] || basename "$f"; done >"$GH_UPLOADED" ;;
+"release upload") shift 3; for f in "$@"; do [[ $f == --clobber ]] || basename "$f"; done >>"$GH_UPLOADED" ;;
 "release delete-asset") ;;
 *) echo "unexpected: gh $*" >&2; exit 99 ;;
 esac

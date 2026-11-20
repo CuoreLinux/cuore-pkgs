@@ -2,7 +2,12 @@
 # Publishes a built repository as the GitHub release TAG (cuore D134): the
 # packages, the database under the names pacman asks for (cuore.db, not a
 # link), their signatures; then removes files the new database no longer
-# names. Uploads come first, so the release always holds a working repository.
+# names. Packages are uploaded first and the database last, and removals come
+# after both, so the database a system reads never names a file that isn't there.
+#
+# Nothing is published that fails bin/check-signatures against the key the
+# keyring package ships, and no development build goes to rc or stable (cuore
+# D195): the workflows check both, and so does this, for a run by hand.
 #
 #   bin/publish TAG DIR       (TAG like edge-x86_64; needs gh logged in)
 
@@ -21,6 +26,17 @@ tag=$1 dir=$2
   echo "no signed repository in $dir" >&2
   exit 1
 }
+
+ROOT=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
+key=${CUORE_PUBLISH_KEY:-$ROOT/pkgbuilds/cuore-keyring/cuore.gpg}
+"$ROOT/bin/check-signatures" "$key" "$dir" >/dev/null || {
+  echo "$dir isn't signed by the key in $key; nothing was published" >&2
+  exit 1
+}
+if [[ $tag != edge-* ]] && compgen -G "$dir/cuore-[0-9]*dev*.pkg.tar.zst" >/dev/null; then
+  echo "a development build doesn't go to ${tag%-x86_64}; nothing was published" >&2
+  exit 1
+fi
 
 stage=$(mktemp -d)
 trap 'rm -rf "${stage:?}"' EXIT
@@ -41,7 +57,8 @@ if ! gh release view "$tag" >/dev/null 2>&1; then
   gh release create "$tag" --title "Cuore $tag" \
     --notes "Cuore's signed package repository for the ${tag%-x86_64} channel." "${prerelease[@]}"
 fi
-gh release upload "$tag" "$stage"/* --clobber
+gh release upload "$tag" "$stage"/*.pkg.tar.zst "$stage"/*.pkg.tar.zst.sig --clobber
+gh release upload "$tag" "$stage"/cuore.* --clobber
 
 mapfile -t keep < <(cd "$stage" && printf '%s\n' *)
 while IFS= read -r asset; do

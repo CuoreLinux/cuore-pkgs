@@ -53,13 +53,13 @@ case "$1 $2" in
 "release view")
   [[ " $* " == *" --json "* ]] && printf '%s\n' app-0-1-any.pkg.tar.zst app-1-1-any.pkg.tar.zst cuore.db
   exit 0 ;;
-"release upload") shift 3; for f in "$@"; do [[ $f == --clobber ]] || basename "$f"; done >"$GH_UPLOADED" ;;
+"release upload") shift 3; for f in "$@"; do [[ $f == --clobber ]] || basename "$f"; done >>"$GH_UPLOADED" ;;
 "release delete-asset") ;;
 *) echo "unexpected: gh $*" >&2; exit 99 ;;
 esac
 SH
 chmod +x "$tmp/bin/gh"
-run_publish() { PATH="$tmp/bin:$PATH" GH_LOG="$tmp/log" GH_UPLOADED="$tmp/uploaded" "$ROOT/bin/publish" "$@"; }
+run_publish() { PATH="$tmp/bin:$PATH" GH_LOG="$tmp/log" GH_UPLOADED="$tmp/uploaded" CUORE_PUBLISH_KEY="${PUBLISH_KEY:-$tmp/key.asc}" "$ROOT/bin/publish" "$@"; }
 
 if run_publish stable-x86_64 "$tmp/out" >/dev/null 2>&1; then pass "publishing runs"; else fail "publishing runs"; fi
 uploaded=$(sort "$tmp/uploaded" | tr '\n' ' ')
@@ -72,10 +72,32 @@ if grep -qx 'release delete-asset stable-x86_64 app-0-1-any.pkg.tar.zst --yes' "
   ! grep -q 'delete-asset.*app-1-1' "$tmp/log"; then
   pass "files the new database no longer names are removed, and only those"
 else fail "files the new database no longer names are removed, and only those"; fi
-upload_line=$(grep -n '^release upload' "$tmp/log" | cut -d: -f1)
+upload_line=$(grep -n '^release upload' "$tmp/log" | tail -1 | cut -d: -f1)
 delete_line=$(grep -n '^release delete-asset' "$tmp/log" | head -1 | cut -d: -f1)
 if ((upload_line < delete_line)); then pass "uploads come before removals"; else fail "uploads come before removals"; fi
 if [[ $(cat "$tmp/uploaded") != *".old"* ]]; then pass "leftover .old files aren't published"; else fail "leftover .old files aren't published"; fi
+if [[ $(head -1 "$tmp/uploaded") == *.pkg.tar.zst && $(tail -1 "$tmp/uploaded") == cuore.* ]] &&
+  [[ $(grep -c '^release upload' "$tmp/log") == 2 ]]; then
+  pass "packages are uploaded before the database that names them"
+else fail "packages are uploaded before the database that names them"; fi
+
+# publish checks for itself, for a run by hand (cuore D195).
+: >"$tmp/log"
+if run_publish stable-x86_64 "$tmp/tampered" >/dev/null 2>&1 || grep -q '^release' "$tmp/log"; then
+  fail "a repository that fails the signature check isn't published"
+else pass "a repository that fails the signature check isn't published"; fi
+if PUBLISH_KEY="$ROOT/pkgbuilds/cuore-keyring/cuore.gpg" run_publish stable-x86_64 "$tmp/out" >/dev/null 2>&1 || grep -q '^release' "$tmp/log"; then
+  fail "a repository signed by another key isn't published"
+else pass "a repository signed by another key isn't published"; fi
+cp -r "$tmp/out" "$tmp/dev"
+echo dev >"$tmp/dev/cuore-0.1.0dev9-1-x86_64.pkg.tar.zst"
+gpg --homedir "$tmp/key" --batch --quiet --detach-sign -o "$tmp/dev/cuore-0.1.0dev9-1-x86_64.pkg.tar.zst.sig" "$tmp/dev/cuore-0.1.0dev9-1-x86_64.pkg.tar.zst"
+for channel in stable rc; do
+  if run_publish "$channel-x86_64" "$tmp/dev" >/dev/null 2>&1 || grep -q '^release' "$tmp/log"; then
+    fail "a development build isn't published to $channel"
+  else pass "a development build isn't published to $channel"; fi
+done
+if run_publish edge-x86_64 "$tmp/dev" >/dev/null 2>&1; then pass "a development build goes to edge"; else fail "a development build goes to edge"; fi
 
 status=0
 run_publish main "$tmp/out" >/dev/null 2>&1 || status=$?

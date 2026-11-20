@@ -53,5 +53,5 @@ if [[ $version == *rc* ]] && ((! allow_candidate)); then
 fi
 
 "$ROOT/bin/check-signatures" "$keyfile" "$dir"
-"$ROOT/bin/publish" stable-x86_64 "$dir"
+CUORE_PUBLISH_KEY="$keyfile" "$ROOT/bin/publish" stable-x86_64 "$dir"
 echo "promoted cuore $version from rc to stable"
